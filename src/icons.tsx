@@ -44,6 +44,8 @@ export const IMore = S(<><circle cx="5" cy="12" r="1.7" fill="currentColor" stro
 export const IEye = S(<><path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.8" /></>);
 export const IEyeOff = S(<><path d="M4 4.5 20 19.5" /><path d="M9.9 6.2A9.4 9.4 0 0 1 12 5.8c6 0 9.5 6.2 9.5 6.2a17.5 17.5 0 0 1-3 3.5M6.6 7.4A16.6 16.6 0 0 0 2.5 12S6 18.2 12 18.2c1.2 0 2.3-.2 3.3-.6" /></>);
 export const ILockF = S(<><rect x="5" y="10.5" width="14" height="10" rx="2.6" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" strokeWidth="2.2" /></>, true);
+/* 开锁：锁梁右侧断开，用于「已锁定 · 点此解锁」状态 */
+export const IUnlockF = S(<><rect x="5" y="10.5" width="14" height="10" rx="2.6" /><path d="M8 10.5V8a4 4 0 0 1 7.6-1.7" fill="none" stroke="currentColor" strokeWidth="2.2" /></>, true);
 export const IBoltF = S(<path d="M13.4 2.3 4.8 13.1c-.4.5 0 1.2.6 1.2h5l-1.7 7.2c-.2.7.7 1.1 1.2.6l8.6-10.8c.4-.5 0-1.2-.6-1.2h-5l1.7-7.2c.2-.7-.7-1.1-1.2-.6Z" />, true);
 export const IVol = S(<><path d="M4 9.5v5h3.2L12 18.8V5.2L7.2 9.5Z" fill="currentColor" stroke="none" /><path d="M15.5 9a4.3 4.3 0 0 1 0 6" /><path d="M18 6.5a8 8 0 0 1 0 11" /></>);
 export const IVolMute = S(<><path d="M4 9.5v5h3.2L12 18.8V5.2L7.2 9.5Z" fill="currentColor" stroke="none" /><path d="m15.5 9.5 5 5" /><path d="m20.5 9.5-5 5" /></>);

@@ -10,7 +10,7 @@ import { sanitizeHtml } from "../html";
 import { setBackHandler } from "../back";
 import {
   IAspect, IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
-  ILink, IList, ILockF, IPauseF, IPlayF, IRotate, IStar, IStarF, IVol, IVolMute,
+  ILink, IList, ILockF, IPauseF, IPlayF, IRotate, IStar, IStarF, IUnlockF, IVol, IVolMute,
 } from "../icons";
 
 type Props = {
@@ -219,7 +219,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
      iOS 走 UIWindowScene 真旋转，这层兜底必须禁用 —— 否则 WebView 的
      viewport 若没同步变宽，就会在原生旋转之外再叠一层 90°（画面倒过来）。 */
   const rotated = !isDesktop && !isIOS && fs && !landscape && vsize.w > vsize.h && vsize.h > 0;
-  /* 控件是否可见：自动隐藏或锁定时整层让位（锁定按钮单独渲染） */
+  /* 控件是否可见：自动隐藏或锁定时整层让位（锁定/解锁按钮单独渲染） */
   const chrome = !idle && !locked;
 
   /* —— 屏幕方向：跟随真实视口，原生旋转后 WebView 会 resize ——
@@ -955,33 +955,48 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </div>
       )}
 
+      {/* 横屏/沉浸：锁定与解锁共用右上角「同一颗」按钮。
+          锁定态其余控件全部让位，但这颗按钮留在原位变成「解锁」，
+          否则解锁入口会跑回左侧把手，横屏时正好被灵动岛/安全区挡住。 */}
+      {!isDesktop && !idle && (fs || landscape) && (
+        <div className="absolute right-3 z-40 flex items-center gap-2"
+          style={{ top: "calc(var(--sat, 0px) + 6px)", right: "calc(var(--sar, 0px) + 12px)" }}>
+          {!locked && (
+            <>
+              <button onClick={toggleFit} aria-label={`画面比例：当前${fitLabel}，点击切换`} aria-pressed={videoFit === "cover"}
+                className="hg-chip-strong h-9 px-2.5 rounded-full backdrop-blur-md flex items-center gap-1.5 pressable elev-1">
+                <IAspect size={16} />
+                <span className="text-[11px] font-semibold hg-ink">{fitLabel}</span>
+              </button>
+              {isIOS && fs && (
+                <button onClick={toggleOrientation} aria-label={landscape ? "切换到竖屏" : "切换到横屏"} aria-pressed={landscape}
+                  className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+                  <IRotate size={17} />
+                </button>
+              )}
+              {fs && (
+                <button onClick={exitFs} aria-label="退出全屏"
+                  className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+                  <ICompress size={18} />
+                </button>
+              )}
+            </>
+          )}
+          {/* 固定放在组尾（最靠右）：锁定态其它按钮消失时，这颗按钮的
+              right/top 完全不变，只换图标与高亮底色，解锁位置不会漂。 */}
+          <button onClick={toggleLock} aria-label={locked ? "解锁" : "锁定屏幕"} aria-pressed={locked}
+            title={locked ? "解锁" : "锁定屏幕"}
+            className={`w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1 ${locked
+              ? "bg-primary text-on-primary"
+              : "hg-chip-strong"}`}>
+            {locked ? <IUnlockF size={17} /> : <ILockF size={17} />}
+          </button>
+        </div>
+      )}
+
       {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层） */}
       {chrome && !isDesktop && fs && (
         <>
-          <div className="absolute right-3 z-40 flex items-center gap-2"
-            style={{ top: "calc(var(--sat, 0px) + 6px)", right: "calc(var(--sar, 0px) + 12px)" }}>
-            {/* 横屏/沉浸模式下的锁定入口：左侧把手在横屏容易被安全区挤到视野外，
-                顶部这颗按钮保证横屏一定能找到锁定。 */}
-            <button onClick={toggleLock} aria-label="锁定屏幕" aria-pressed={locked}
-              className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
-              <ILockF size={17} />
-            </button>
-            <button onClick={toggleFit} aria-label={`画面比例：当前${fitLabel}，点击切换`} aria-pressed={videoFit === "cover"}
-              className="hg-chip-strong h-9 px-2.5 rounded-full backdrop-blur-md flex items-center gap-1.5 pressable elev-1">
-              <IAspect size={16} />
-              <span className="text-[11px] font-semibold hg-ink">{fitLabel}</span>
-            </button>
-            {isIOS && (
-              <button onClick={toggleOrientation} aria-label={landscape ? "切换到竖屏" : "切换到横屏"} aria-pressed={landscape}
-                className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
-                <IRotate size={17} />
-              </button>
-            )}
-            <button onClick={exitFs} aria-label="退出全屏"
-              className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
-              <ICompress size={18} />
-            </button>
-          </div>
           <div className="absolute inset-x-0 z-40 flex items-center gap-3 px-4"
             style={{ bottom: "calc(var(--sab, 0px) + 10px)", paddingLeft: "calc(var(--sal, 0px) + 16px)", paddingRight: "calc(var(--sar, 0px) + 16px)" }}>
             <button onClick={() => videoRef.current?.toggle()}
@@ -1004,12 +1019,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         </>
       )}
 
-      {/* 移动端：播放锁定把手。锁定后顶部/右侧/底部控件与上下滑切集全部失效，
-          只留左侧这个把手用于解锁，避免躺着看时误触；5 秒后它自己也隐藏，
-          点一下画面再唤出。top 用 min() 而不是纯 50%：iOS 原生转横屏时
-          WebView 的布局高度可能短暂仍是竖屏值，50% 会落到横屏可视区之外，
-          表现为「横屏看不到锁定按钮」。 */}
-      {!isDesktop && !idle && (
+      {/* 移动端竖屏：播放锁定把手。锁定后顶部/右侧/底部控件与上下滑切集全部失效，
+          只留这个把手用于解锁；5 秒后它自己也隐藏，点一下画面再唤出。
+          横屏/沉浸（fs 或 landscape）时不再渲染：灵动岛与左右安全区都在这一侧，
+          把手会被遮住，此时锁定/解锁统一走右上角同一颗按钮。 */}
+      {!isDesktop && !idle && !fs && !landscape && (
         <button onClick={toggleLock} aria-label={locked ? "解锁" : "锁定屏幕"} aria-pressed={locked}
           className={`absolute z-50 flex items-center justify-center pressable backdrop-blur-md ${locked
             ? "w-11 h-11 rounded-r-full bg-primary text-on-primary elev-3"
