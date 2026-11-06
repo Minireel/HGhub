@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, forwardRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, forwardRef } from "react";
 import Hls from "hls.js";
 import { isLocalMedia, playlist } from "../api";
 
@@ -35,7 +35,12 @@ type Props = {
   className?: string;
 };
 
-/** 只负责「播」：hls.js + video 元素，控制条由外层渲染。 */
+/** 只负责「播」：hls.js + video 元素，控制条由外层渲染。
+ *
+ *  ⚠️ 不要给 <video> 加 opacity / transition / transform。iOS WKWebView 播放
+ *  原生 HLS 时会把视频放进独立的硬件解码层，对 video 做透明度合成会让画面
+ *  凭空消失（声音仍在），换集时若把 opacity 归零再淡入更容易触发。
+ *  封面直接用 poster 属性，加载期间由 bg-black 兜底，不需要淡入动画。 */
 const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   { src, poster, autoPlay = true, muted = false, loop = false, fit = "contain", volume = 1, rate = 1,
     onTime, onDuration, onSize, onPlaying, onPause, onWaiting, onEnded, onError, onClick, className = "" },
@@ -43,7 +48,6 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
-  const [ready, setReady] = useState(false);
 
   useImperativeHandle(ref, () => ({
     el: () => videoRef.current,
@@ -63,7 +67,6 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !src) return;
-    setReady(false);
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     const proxied = isLocalMedia(src);
@@ -131,8 +134,8 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
       loop={loop}
       onClick={onClick}
       className={`w-full h-full bg-black ${fit === "cover" ? "object-cover" : "object-contain"} ${className}`}
-      style={{ opacity: ready ? 1 : 0, transition: "opacity .35s" }}
-      onLoadedData={(e) => { setReady(true); reapply(e.target as HTMLVideoElement); }}
+      onLoadedData={(e) => reapply(e.target as HTMLVideoElement)}
+      onCanPlay={(e) => reapply(e.target as HTMLVideoElement)}
       onTimeUpdate={(e) => onTime?.((e.target as HTMLVideoElement).currentTime)}
       onLoadedMetadata={(e) => {
         const v = e.target as HTMLVideoElement;

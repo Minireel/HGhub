@@ -87,6 +87,19 @@ pnpm android:dev      # 真机 / 模拟器调试
 pnpm android:build    # 产出 APK
 ```
 
+iOS（需 macOS + Xcode、Rust 的 `aarch64-apple-ios` target，并已执行一次 `pnpm tauri ios init`）：
+
+```bash
+pnpm ios:ipa          # 产出未签名的 arm64 IPA
+```
+
+脚本会编译前端与 Rust 静态库、以 `CODE_SIGNING_ALLOWED=NO` 链接出 `HGhub.app`，
+再按 `Payload/*.app` 结构打包为项目根目录的 `HGhub-unsigned.ipa`；可用
+`IPA_OUT=/path/to/out.ipa` 指定输出位置。IPA **刻意不签名**，交给 SideStore / AltStore
+用自己的 Apple ID 重签后侧载（免费账号签发的证书 7 天过期，需定期重签）。
+最低系统版本 iOS 15.0。首次执行 `tauri ios init` 时若提示缺少
+`APPLE_DEVELOPMENT_TEAM`，设置任意有效 Team ID 即可，脚本本身不需要付费账号。
+
 ### 环境注意
 
 - 工程若放在 **exFAT** 盘（不支持符号链接），需保留 `.npmrc` 中的 `node-linker=hoisted`。
@@ -98,9 +111,14 @@ pnpm android:build    # 产出 APK
 1. **统一边缘信封**：站点把 `/api/**` 收敛为 `POST /api/edge/request`（`method/path/body(base64)/content_type` + `Authorization: Bearer`），本项目只对接这一个入口，无需处理 Cookie。
 2. **封面解密**：封面为 AES-128-CBC 密文，Rust 侧解密后经自定义协议输出，前端 `<img>` 直接使用。
 3. **HLS 代理**：m3u8 与分片经自定义协议转发并改写 `#EXT-X-KEY` / 分片地址，绕开 WebView 的 CORS 与防盗链。
-4. **自定义协议**：Windows / Android 为 `http://hg.localhost/*`，macOS 为 `hg://localhost/*`（Tauri 的平台差异）。
-   Rust 侧 `lib.rs` 与前端 `api.ts` 各自按平台生成一次基址，两处必须一致，否则封面与视频全部加载失败。
-5. **不做签名逆向**：只复用浏览器同源行为，接口字段均有文档与实测样本。
+4. **自定义协议**：Windows / Android 为 `http://hg.localhost/*`，macOS / iOS 为 `hg://localhost/*`（Tauri 的平台差异）。
+   Rust 侧 `media.rs` 与前端 `api.ts` 各自按平台生成一次基址，两处必须一致，否则封面与视频全部加载失败。
+5. **iOS 布局**：`api.ts` 的 `platform` 表示**布局模式**而不是真实系统，iOS 与 Android 共用同一套移动端 UI；
+   真实平台请用 `runtimePlatform` / `isIOS`。若把 `platform` 改回真实值，播放页会误走桌面控制条与右侧停靠面板。
+6. **iOS 原生层**：`scripts/ios/main.mm` 由构建脚本复制到 `gen/apple`，把 WKWebView 与 scrollView 的底色染成
+   不透明深色以消除底部白条；不能用 `opaque=NO` / `clearColor`，否则视频硬件解码层会让整个页面黑屏。
+   同理 `<video>` 不做 `opacity` 淡入，播放页在 iOS 上跳过全屏 blur 氛围层。
+7. **不做签名逆向**：只复用浏览器同源行为，接口字段均有文档与实测样本。
 
 
 ## 免责声明

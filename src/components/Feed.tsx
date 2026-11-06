@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, cover, fmt, fmtTime, mediaUrl, platform } from "../api";
+import { api, cover, fmt, fmtTime, isIOS, mediaUrl, platform } from "../api";
 import type { Detail, Episode, Post, VideoCard } from "../types";
 import { useStore } from "../store";
 import { Avatar, Img, Sheet } from "./ui";
@@ -508,10 +508,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     <div
       className={`hg-player-ui absolute inset-0 overflow-hidden bg-black player-root ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${rotated ? "fs-landscape" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
       onPointerMove={() => { if (isDesktop) wake(); }}>
-      {/* 氛围背景 */}
-      <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
-        {posterUrl && <img src={posterUrl} alt="" className="w-full h-full object-cover" />}
-      </div>
+      {/* 氛围背景：iOS WKWebView 上「全屏 blur + opacity」会创建巨大合成层，
+          与视频硬件解码层叠加时可能把整个内容层拖黑，这里直接跳过。
+          移动端视频是满屏 cover，去掉这层本来也看不出差别。 */}
+      {!isIOS && (
+        <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
+          {posterUrl && <img src={posterUrl} alt="" className="w-full h-full object-cover" />}
+        </div>
+      )}
 
       <div ref={boxRef} onScroll={onScroll}
         className="absolute inset-y-0 left-0 overflow-y-scroll no-bar snap-y snap-mandatory overscroll-y-contain"
