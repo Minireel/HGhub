@@ -115,7 +115,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [landscape, setLandscape] = useState(false);
 
   /* 控件自动隐藏：桌面鼠标闲置 2.8s，移动端播放中 5s（并同时收掉系统状态栏）。
-     暂停 / 面板打开 / 锁定 / 拖动进度条 / 出错时一律常显。 */
+     暂停 / 面板打开 / 拖动进度条 / 出错时一律常显。
+     锁定态同样计时：点下锁定后 5 秒连左侧解锁把手一起收起，
+     再点一下画面只把解锁把手唤出来，其余控件仍保持隐藏。 */
   const [idle, setIdle] = useState(false);
   const idleTimer = useRef<number | undefined>(undefined);
   /* 每次交互 +1，作为「重新计时」的触发器，省得把一堆状态塞进依赖数组 */
@@ -139,8 +141,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const started = time > 0.2;
   useEffect(() => {
     window.clearTimeout(idleTimer.current);
-    /* 还没出画面、暂停、面板打开、拖动进度、出错、锁定时一律常显。 */
-    const hold = !active || paused || !started || !playUrl || !!panel || locked
+    /* 还没出画面、暂停、面板打开、拖动进度、出错时一律常显。
+       注意不要把 locked 放进 hold，否则解锁把手永远常显、藏不掉。 */
+    const hold = !active || paused || !started || !playUrl || !!panel
       || !!scrub || barPct !== null || !!err || !hasVideo;
     if (hold) { setIdle(false); return undefined; }
     idleTimer.current = window.setTimeout(() => setIdle(true), idleDelay);
@@ -245,8 +248,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     setLandscape(next);
     if (isIOS) api.setOrientation(next).catch(() => {});
     setFs(next);
+    /* 旋转时先把控件唤出来：否则 5 秒自动隐藏已经生效后，
+       切到横屏会看到一整块「没有任何按钮」的画面（含解锁把手）。 */
+    wake();
     toast(next ? "横屏播放" : "竖屏播放", "info");
-  }, [landscape, setFs, toast]);
+  }, [landscape, setFs, toast, wake]);
 
   /* 退出沉浸全屏只管状态；方向复位统一放下面的 effect，
      这样安卓返回键 / 切 Tab 等所有「setFs(false)」路径都能覆盖到。 */
@@ -271,12 +277,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     api.setStatusBar(false).catch(() => {});
   }, [fs, active, setChromeHidden]);
 
-  /* 播放锁定：只挡手势与控件，视频继续播 */
+  /* 播放锁定：只挡手势与控件，视频继续播。
+     锁定/解锁都重新起 5 秒计时，让解锁把手跟着一起自动隐藏。 */
   const toggleLock = () => {
     const next = !locked;
     setLocked(next);
-    if (next) setIdle(false);
-    toast(next ? "已锁定 · 点左侧锁图标解锁" : "已解锁", "info");
+    wake();
+    toast(next ? "已锁定 · 5 秒后隐藏，点画面唤出解锁" : "已解锁", "info");
   };
 
   /* 控件收起/锁定时，连底部标签栏和首页压在视频上的浮层一起让位。
@@ -441,7 +448,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* —— 长按 2x（上滑锁定） / 横拖定位 / 单击暂停 —— */
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDesktop || locked) return;
+    if (isDesktop) return;
+    /* 锁定态：点一下画面只唤出左侧解锁把手（5 秒后再次隐藏），
+       不做长按倍速 / 横拖定位 / 点按暂停，也不直接解锁，避免误触。 */
+    if (locked) { wake(); return; }
     const el = e.currentTarget;
     const width = el.clientWidth || 1;
     /* 控件已自动隐藏：这一下只负责唤出 UI，抬手不当作点按暂停 */
@@ -950,6 +960,12 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         <>
           <div className="absolute right-3 z-40 flex items-center gap-2"
             style={{ top: "calc(var(--sat, 0px) + 6px)", right: "calc(var(--sar, 0px) + 12px)" }}>
+            {/* 横屏/沉浸模式下的锁定入口：左侧把手在横屏容易被安全区挤到视野外，
+                顶部这颗按钮保证横屏一定能找到锁定。 */}
+            <button onClick={toggleLock} aria-label="锁定屏幕" aria-pressed={locked}
+              className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+              <ILockF size={17} />
+            </button>
             <button onClick={toggleFit} aria-label={`画面比例：当前${fitLabel}，点击切换`} aria-pressed={videoFit === "cover"}
               className="hg-chip-strong h-9 px-2.5 rounded-full backdrop-blur-md flex items-center gap-1.5 pressable elev-1">
               <IAspect size={16} />
@@ -989,13 +1005,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       )}
 
       {/* 移动端：播放锁定把手。锁定后顶部/右侧/底部控件与上下滑切集全部失效，
-          只留左侧这个把手用于解锁，避免躺着看时误触。 */}
+          只留左侧这个把手用于解锁，避免躺着看时误触；5 秒后它自己也隐藏，
+          点一下画面再唤出。top 用 min() 而不是纯 50%：iOS 原生转横屏时
+          WebView 的布局高度可能短暂仍是竖屏值，50% 会落到横屏可视区之外，
+          表现为「横屏看不到锁定按钮」。 */}
       {!isDesktop && !idle && (
         <button onClick={toggleLock} aria-label={locked ? "解锁" : "锁定屏幕"} aria-pressed={locked}
           className={`absolute z-50 flex items-center justify-center pressable backdrop-blur-md ${locked
             ? "w-11 h-11 rounded-r-full bg-primary text-on-primary elev-3"
             : "w-10 h-10 rounded-r-full hg-chip hg-ink-2"}`}
-          style={{ top: "50%", left: "var(--sal, 0px)", transform: "translateY(-50%)" }}>
+          style={{ top: "min(50%, calc(var(--sat, 0px) + 210px))", left: "calc(var(--sal, 0px) + 6px)", transform: "translateY(-50%)" }}>
           <ILockF size={locked ? 18 : 15} />
         </button>
       )}
