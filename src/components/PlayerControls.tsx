@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { fmtTime } from "../api";
-import { ICheck, ICompress, IExpand, INext, IPauseF, IPip, IPlayF, ITheater, IVol, IVolMute } from "../icons";
+import { IAspect, ICheck, ICompress, IExpand, INext, IPauseF, IPip, IPlayF, ITheater, IVol, IVolMute } from "../icons";
 
 type Props = {
   paused: boolean;
@@ -12,6 +12,9 @@ type Props = {
   volume: number;
   theater?: boolean;
   fullscreen?: boolean;
+  /** 画面比例：contain 完整显示 / cover 铺满裁切 */
+  fit?: "contain" | "cover";
+  onToggleFit?: () => void;
   visible?: boolean;
   nextDisabled?: boolean;
   nextTitle?: string;
@@ -31,6 +34,7 @@ const clock = (s: number) => fmtTime(Math.max(0, s || 0)).padStart(5, "0");
 export default function PlayerControls({
   paused, time, duration, buffered = 0, rate, muted, volume, theater = false, fullscreen = false,
   visible = true, nextDisabled = false, nextTitle = "下一个", onToggle, onSeek, onRate, onMute, onVolume, onPip, onTheater, onFullscreen, onNext,
+  fit = "contain", onToggleFit,
 }: Props) {
   const [speedOpen, setSpeedOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -96,6 +100,12 @@ export default function PlayerControls({
         {!fullscreen && onTheater && (
           <button className={`player-control ${theater ? "is-on" : ""}`} aria-label="影院模式" aria-pressed={theater}
             data-tooltip="影院模式 T" onClick={onTheater}><ITheater size={20} strokeWidth={1.6} /></button>
+        )}
+        {onToggleFit && (
+          <button className={`player-control ${fit === "cover" ? "is-on" : ""}`} aria-pressed={fit === "cover"}
+            aria-label={fit === "contain" ? "画面：自适应，点击切换为铺满" : "画面：铺满，点击切换为自适应"}
+            data-tooltip={fit === "contain" ? "画面：自适应（点击铺满）" : "画面：铺满（点击自适应）"}
+            onClick={onToggleFit}><IAspect size={19} strokeWidth={1.6} /></button>
         )}
         <button className="player-control" aria-label={fullscreen ? "退出全屏" : "全屏"} data-tooltip={fullscreen ? "退出全屏 Esc" : "全屏 F"} onClick={onFullscreen}>
           {fullscreen ? <ICompress size={19} strokeWidth={1.6} /> : <IExpand size={19} strokeWidth={1.6} />}

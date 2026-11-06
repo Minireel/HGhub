@@ -9,7 +9,7 @@ import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { sanitizeHtml } from "../html";
 import { setBackHandler } from "../back";
 import {
-  IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
+  IAspect, IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
   ILink, IList, ILockF, IPauseF, IPlayF, IStar, IStarF, IVol, IVolMute,
 } from "../icons";
 
@@ -34,8 +34,17 @@ const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, startEp, startTime }: Props) {
   const store = useStore();
-  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen } = store;
+  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, videoFit, setVideoFit, toast, addHistory, user, setLoginOpen } = store;
   const isDesktop = platform !== "android";
+
+  /* 画面比例：contain 完整显示不裁切，cover 铺满但会放大裁掉边缘。
+     选择写进 store 并持久化，切换只改 object-fit，不会重载视频。 */
+  const fitLabel = videoFit === "contain" ? "自适应" : "铺满";
+  const toggleFit = useCallback(() => {
+    const next = videoFit === "contain" ? "cover" : "contain";
+    setVideoFit(next);
+    toast(next === "contain" ? "画面：自适应（完整显示）" : "画面：铺满（可能裁切边缘）", "info");
+  }, [videoFit, setVideoFit, toast]);
 
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<VideoHandle>(null);
@@ -510,7 +519,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       onPointerMove={() => { if (isDesktop) wake(); }}>
       {/* 氛围背景：iOS WKWebView 上「全屏 blur + opacity」会创建巨大合成层，
           与视频硬件解码层叠加时可能把整个内容层拖黑，这里直接跳过。
-          移动端视频是满屏 cover，去掉这层本来也看不出差别。 */}
+          视频本身已铺满容器（自适应时留黑边），去掉这层影响不大。 */}
       {!isIOS && (
         <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
           {posterUrl && <img src={posterUrl} alt="" className="w-full h-full object-cover" />}
@@ -529,7 +538,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
                 <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay muted={muted}
                   volume={volume} rate={effRate}
-                  fit={isDesktop || (vsize.w > 0 && vsize.w > vsize.h) ? "contain" : "cover"}
+                  fit={videoFit}
                   onClick={() => { if (isDesktop) videoRef.current?.toggle(); }}
                   onTime={onTimeTick}
                   onDuration={onDurationTick}
@@ -582,7 +591,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 )
               ) : null}
 
-              {/* 右侧操作栏（移动端）：收藏 / 评论 / 全屏 / 分享
+              {/* 右侧操作栏（移动端）：收藏 / 评论 / 全屏 / 画面比例 / 分享
                   颜色写死不跟主题走：浅色主题下这些字必须仍是白色 */}
               {!fs && !isDesktop && (
                 <div className="absolute right-3 z-20 flex flex-col items-center gap-[16px]"
@@ -598,6 +607,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   <button onClick={() => setFs(true)} className="flex flex-col items-center gap-1 pressable" aria-label="全屏">
                     <IExpand size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[10.5px] hg-ink-2 hg-ov-shadow">全屏</span>
+                  </button>
+                  <button onClick={toggleFit} className="flex flex-col items-center gap-1 pressable"
+                    aria-label={`画面比例：当前${fitLabel}，点击切换`} aria-pressed={videoFit === "cover"}>
+                    <IAspect size={26} className="hg-ink hg-ov-shadow" />
+                    <span className="text-[10.5px] hg-ink-2 hg-ov-shadow">{fitLabel}</span>
                   </button>
                   <button onClick={shareLink} className="flex flex-col items-center gap-1 pressable" aria-label="分享">
                     <ILink size={25} className="hg-ink hg-ov-shadow" />
@@ -750,6 +764,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         <PlayerControls
           paused={paused} time={time} duration={duration} buffered={buffered} rate={rate}
           muted={muted} volume={volume} theater={theater} fullscreen={fullscreen}
+          fit={videoFit} onToggleFit={toggleFit}
           visible={active && !idle}
           nextDisabled={!episodes.some((e) => e.ep_num === curEp + 1) && index >= videoIds.length - 1}
           nextTitle={episodes.some((e) => e.ep_num === curEp + 1) ? "下一集 E" : "下一部 ↓"}
@@ -806,11 +821,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层） */}
       {!isDesktop && fs && (
         <>
-          <button onClick={() => setFs(false)} aria-label="退出全屏"
-            className="hg-chip-strong absolute right-3 z-40 w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1"
-            style={{ top: "calc(var(--sat, 0px) + 6px)" }}>
-            <ICompress size={18} />
-          </button>
+          <div className="absolute right-3 z-40 flex items-center gap-2" style={{ top: "calc(var(--sat, 0px) + 6px)" }}>
+            <button onClick={toggleFit} aria-label={`画面比例：当前${fitLabel}，点击切换`} aria-pressed={videoFit === "cover"}
+              className="hg-chip-strong h-9 px-2.5 rounded-full backdrop-blur-md flex items-center gap-1.5 pressable elev-1">
+              <IAspect size={16} />
+              <span className="text-[11px] font-semibold hg-ink">{fitLabel}</span>
+            </button>
+            <button onClick={() => setFs(false)} aria-label="退出全屏"
+              className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+              <ICompress size={18} />
+            </button>
+          </div>
           <div className="absolute inset-x-0 z-40 flex items-center gap-3 px-4"
             style={{ bottom: "calc(var(--sab, 0px) + 10px)" }}>
             <button onClick={() => videoRef.current?.toggle()}
