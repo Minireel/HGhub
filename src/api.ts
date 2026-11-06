@@ -126,6 +126,11 @@ export const api = {
   /* 更新检查：对比 GitHub Release 的 tag */
   checkUpdate: () => call<UpdateInfo>("check_update"),
   openUrl: (url: string) => call<void>("open_url", { url }),
+
+  /* iOS 原生：屏幕方向与系统状态栏。
+     非 iOS 平台命令是空实现，调用也不会报错，但界面只在 iOS 展示入口。 */
+  setOrientation: (landscape: boolean) => call<void>("set_orientation_cmd", { landscape }),
+  setStatusBar: (hidden: boolean) => call<void>("set_status_bar_cmd", { hidden }),
 };
 
 /* ── 更新检查 ───────────────────────────────────────────── */

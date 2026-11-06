@@ -120,6 +120,12 @@ pnpm ios:ipa          # 产出未签名的 arm64 IPA
    同理 `<video>` 不做 `opacity` 淡入，播放页在 iOS 上跳过全屏 blur 氛围层。
 7. **不做签名逆向**：只复用浏览器同源行为，接口字段均有文档与实测样本。
 8. **画面比例**：播放页可切换「自适应」（`object-fit: contain`，完整显示、可能有黑边）与「铺满」（`object-fit: cover`，满屏但会放大裁切边缘）。移动端入口在右侧操作栏与沉浸全屏右上角，桌面入口在控制条；选择持久化在 `hghub_app_v1`，默认自适应。
+9. **iOS 横竖屏 / 锁定 / 沉浸**：屏幕方向与系统状态栏必须由 UIKit 控制，`src-tauri/src/ios.rs` 提供两个命令：
+   `set_orientation_cmd`（iOS 16+ 用 `UIWindowScene.requestGeometryUpdateWithPreferences:`，15 用 `UIDevice` KVC 兜底）与
+   `set_status_bar_cmd`（给根控制器的类挂 `prefersStatusBarHidden`）；两者都经 `dispatch_async_f` 派到主线程。
+   非 iOS 平台是空实现，所以 `invoke_handler` 全平台一致。播放页右侧栏有「横屏/竖屏」与左侧锁形按钮；
+   锁定后屏蔽手势与上下滑切集，只留解锁把手。播放地址就绪且开始出画面后 5 秒，移动端控件、底部标签栏与
+   系统状态栏一起自动隐藏（暂停/缓冲/面板打开/拖动进度时保持常显），点一下画面即可唤出。
 
 
 ## 免责声明

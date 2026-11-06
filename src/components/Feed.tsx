@@ -10,7 +10,7 @@ import { sanitizeHtml } from "../html";
 import { setBackHandler } from "../back";
 import {
   IAspect, IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
-  ILink, IList, ILockF, IPauseF, IPlayF, IStar, IStarF, IVol, IVolMute,
+  ILink, IList, ILockF, IPauseF, IPlayF, IRotate, IStar, IStarF, IVol, IVolMute,
 } from "../icons";
 
 type Props = {
@@ -34,7 +34,7 @@ const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, startEp, startTime }: Props) {
   const store = useStore();
-  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, videoFit, setVideoFit, toast, addHistory, user, setLoginOpen } = store;
+  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, videoFit, setVideoFit, setChromeHidden, toast, addHistory, user, setLoginOpen } = store;
   const isDesktop = platform !== "android";
 
   /* 画面比例：contain 完整显示不裁切，cover 铺满但会放大裁掉边缘。
@@ -77,22 +77,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const fs = store.fs;
   const setFs = store.setFs;
 
-  /* 桌面：鼠标闲置 2.8s 自动隐藏播放器 UI（沉浸） */
-  const [idle, setIdle] = useState(false);
-  const idleTimer = useRef<number | undefined>(undefined);
-  const wake = useCallback(() => {
-    setIdle(false);
-    window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(() => setIdle(true), 2800);
-  }, []);
-  useEffect(() => {
-    if (!isDesktop) return undefined;
-    wake();
-    return () => window.clearTimeout(idleTimer.current);
-  }, [isDesktop, wake]);
-  useEffect(() => {
-    if (paused) { setIdle(false); window.clearTimeout(idleTimer.current); }
-  }, [paused]);
   const [fullscreen, setFullscreen] = useState(false);
   const [heartBurst, setHeartBurst] = useState(0);
   /* —— 移动端手势 —— */
@@ -110,6 +94,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const gesture = useRef<{
     x: number; y: number; startY: number; t: number; timer: number | null;
     mode: "idle" | "hold" | "scrub"; base: number; width: number;
+    /* 按下时控件是否处于自动隐藏态：是的话抬手只负责唤出 UI，不当作点按暂停 */
+    wasIdle: boolean;
   } | null>(null);
 
   const curId = videoIds[index];
@@ -119,6 +105,47 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const playUrl = playUrls[playKey] || "";
   const episodes = detail?.episodes || [];
   const post = posts[curId];
+  /* 提前算好：自动隐藏计时器要用它判断「这一条到底有没有视频」 */
+  const hasVideo = kind === "video" || !!post?.video_url;
+
+  /* —— 播放锁定 & 屏幕方向 ——
+     locked 只挡手势和控件，不暂停视频；landscape 跟随真实视口，
+     用户自己转手机时按钮文案也能同步。 */
+  const [locked, setLocked] = useState(false);
+  const [landscape, setLandscape] = useState(false);
+
+  /* 控件自动隐藏：桌面鼠标闲置 2.8s，移动端播放中 5s（并同时收掉系统状态栏）。
+     暂停 / 面板打开 / 锁定 / 拖动进度条 / 出错时一律常显。 */
+  const [idle, setIdle] = useState(false);
+  const idleTimer = useRef<number | undefined>(undefined);
+  /* 每次交互 +1，作为「重新计时」的触发器，省得把一堆状态塞进依赖数组 */
+  const [activity, setActivity] = useState(0);
+  const lastMove = useRef(0);
+  const idleDelay = isDesktop ? 2800 : 5000;
+  const wake = useCallback(() => {
+    setIdle(false);
+    setActivity((n) => n + 1);
+  }, []);
+  /* 桌面 pointermove 每秒能触发上百次，节流后再重置计时器，避免整页反复重渲染 */
+  const wakeOnMove = useCallback(() => {
+    if (!isDesktop) return;
+    const now = Date.now();
+    if (now - lastMove.current < 220) return;
+    lastMove.current = now;
+    wake();
+  }, [isDesktop, wake]);
+  /* time > 0.2 表示视频真的开始走了，比「拿到播放地址」更贴近「播放五秒后」。
+     用布尔量而不是原始 time 做依赖，否则每次 timeupdate 都会重挂定时器，永远藏不掉。 */
+  const started = time > 0.2;
+  useEffect(() => {
+    window.clearTimeout(idleTimer.current);
+    /* 还没出画面、暂停、面板打开、拖动进度、出错、锁定时一律常显。 */
+    const hold = !active || paused || !started || !playUrl || !!panel || locked
+      || !!scrub || barPct !== null || !!err || !hasVideo;
+    if (hold) { setIdle(false); return undefined; }
+    idleTimer.current = window.setTimeout(() => setIdle(true), idleDelay);
+    return () => window.clearTimeout(idleTimer.current);
+  }, [active, paused, started, playUrl, panel, locked, scrub, barPct, err, hasVideo, idleDelay, activity, playKey]);
 
   /* 观看进度：onTime 里每 5 秒落一次；退出播放页时再用 liveRef 兜一次 */
   const onTimeTick = (t: number) => {
@@ -173,7 +200,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       };
 
   const posterUrl = cover(meta.cover, 900);
-  const hasVideo = kind === "video" || !!post?.video_url;
   const articleHtml = kind === "post" && !hasVideo ? sanitizeHtml(post?.content || "") : "";
 
   /* 分享：复制播放链接 */
@@ -186,8 +212,93 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const effRate = holdSpeed || speedLock ? 2 : rate;
   /* 进度条显示百分比（拖动时用拖动值） */
   const barProgress = barPct ?? (duration ? time / duration : 0);
-  /* 沉浸全屏 + 横屏视频 → 舞台旋转 90°，看起来就是横屏 */
-  const rotated = !isDesktop && fs && vsize.w > vsize.h && vsize.h > 0;
+  /* 安卓没有系统旋转 API，靠 CSS 把舞台转 90° 来「假装横屏」。
+     iOS 走 UIWindowScene 真旋转，这层兜底必须禁用 —— 否则 WebView 的
+     viewport 若没同步变宽，就会在原生旋转之外再叠一层 90°（画面倒过来）。 */
+  const rotated = !isDesktop && !isIOS && fs && !landscape && vsize.w > vsize.h && vsize.h > 0;
+  /* 控件是否可见：自动隐藏或锁定时整层让位（锁定按钮单独渲染） */
+  const chrome = !idle && !locked;
+
+  /* —— 屏幕方向：跟随真实视口，原生旋转后 WebView 会 resize ——
+     旋转动画期间 resize 会连续触发且可能短暂回到旧比例，所以用户刚点过
+     方向按钮后的 1.2s 内忽略自动回写，避免按钮文案和 fs 状态被中间态带偏。 */
+  const orientationLockUntil = useRef(0);
+  useEffect(() => {
+    const check = () => {
+      if (Date.now() < orientationLockUntil.current) return;
+      setLandscape(window.innerWidth > window.innerHeight + 24);
+    };
+    check();
+    window.addEventListener("resize", check);
+    const so = window.screen?.orientation;
+    so?.addEventListener?.("change", check);
+    return () => {
+      window.removeEventListener("resize", check);
+      so?.removeEventListener?.("change", check);
+    };
+  }, []);
+
+  /* 横屏只在 iOS 有原生入口；其他平台该按钮不渲染 */
+  const toggleOrientation = useCallback(() => {
+    const next = !landscape;
+    orientationLockUntil.current = Date.now() + 1200;
+    setLandscape(next);
+    if (isIOS) api.setOrientation(next).catch(() => {});
+    setFs(next);
+    toast(next ? "横屏播放" : "竖屏播放", "info");
+  }, [landscape, setFs, toast]);
+
+  /* 退出沉浸全屏只管状态；方向复位统一放下面的 effect，
+     这样安卓返回键 / 切 Tab 等所有「setFs(false)」路径都能覆盖到。 */
+  const exitFs = useCallback(() => setFs(false), [setFs]);
+
+  /* 方向复位只认「主动退出」的下降沿：fs true→false（退出全屏）或
+     active true→false（离开播放页）。绝不根据 landscape 变化反推 ——
+     用户手动把手机转成横屏时 resize 只是把 landscape 置 true，
+     那时不该把设备强行转回竖屏。 */
+  const prevFs = useRef(fs);
+  const prevActive = useRef(active);
+  useEffect(() => {
+    const leftFs = prevFs.current && !fs;
+    const leftPage = prevActive.current && !active;
+    prevFs.current = fs;
+    prevActive.current = active;
+    if (!leftFs && !leftPage) return;
+    setChromeHidden(false);
+    if (!isIOS) return;
+    setLandscape(false);
+    api.setOrientation(false).catch(() => {});
+    api.setStatusBar(false).catch(() => {});
+  }, [fs, active, setChromeHidden]);
+
+  /* 播放锁定：只挡手势与控件，视频继续播 */
+  const toggleLock = () => {
+    const next = !locked;
+    setLocked(next);
+    if (next) setIdle(false);
+    toast(next ? "已锁定 · 点左侧锁图标解锁" : "已解锁", "info");
+  };
+
+  /* 控件收起/锁定时，连底部标签栏和首页压在视频上的浮层一起让位。
+     只由当前激活的播放页写；离开页面由上面的下降沿统一复位，
+     避免后台挂着的 Feed 把前台状态覆盖掉。 */
+  useEffect(() => {
+    if (isDesktop || !active) return;
+    setChromeHidden(idle || locked);
+  }, [isDesktop, active, idle, locked, setChromeHidden]);
+
+  /* iOS 状态栏：控件收起或锁定时一并隐藏；暂停、面板打开、页面不在前台时恢复 */
+  useEffect(() => {
+    if (!isIOS) return undefined;
+    api.setStatusBar(active && (idle || locked) && !paused && !panel).catch(() => {});
+    return undefined;
+  }, [active, idle, locked, paused, panel]);
+
+  /* 卸载时兜底恢复状态栏，避免别的页面一直被隐藏 */
+  useEffect(() => {
+    if (!isIOS) return undefined;
+    return () => { api.setStatusBar(false).catch(() => {}); };
+  }, []);
 
   /* 滚动定位 */
   const onScroll = useCallback(() => {
@@ -330,12 +441,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* —— 长按 2x（上滑锁定） / 横拖定位 / 单击暂停 —— */
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDesktop) return;
+    if (isDesktop || locked) return;
     const el = e.currentTarget;
     const width = el.clientWidth || 1;
+    /* 控件已自动隐藏：这一下只负责唤出 UI，抬手不当作点按暂停 */
+    const wasIdle = idle;
+    if (wasIdle) wake();
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const g = {
-      x: e.clientX, y: e.clientY, startY: e.clientY, t: Date.now(), base: time, width,
+      x: e.clientX, y: e.clientY, startY: e.clientY, t: Date.now(), base: time, width, wasIdle,
       mode: "idle" as "idle" | "hold" | "scrub",
       timer: window.setTimeout(() => {
         const cur = gesture.current;
@@ -412,6 +526,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       if (!paused) videoRef.current?.play();
       return;
     }
+    if (g.wasIdle) return;
     if (Date.now() - g.t < 260) videoRef.current?.toggle();
   };
 
@@ -516,7 +631,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   return (
     <div
       className={`hg-player-ui absolute inset-0 overflow-hidden bg-black player-root ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${rotated ? "fs-landscape" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
-      onPointerMove={() => { if (isDesktop) wake(); }}>
+      onPointerMove={wakeOnMove}>
       {/* 氛围背景：iOS WKWebView 上「全屏 blur + opacity」会创建巨大合成层，
           与视频硬件解码层叠加时可能把整个内容层拖黑，这里直接跳过。
           视频本身已铺满容器（自适应时留黑边），去掉这层影响不大。 */}
@@ -528,7 +643,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
       <div ref={boxRef} onScroll={onScroll}
         className="absolute inset-y-0 left-0 overflow-y-scroll no-bar snap-y snap-mandatory overscroll-y-contain"
-        style={{ right: isDesktop && panel ? 372 : 0, transition: "right .3s cubic-bezier(.2,0,0,1)" }}>
+        /* 锁定时连上下滑动切集一起停掉，否则锁定等于没锁 */
+        style={{ right: isDesktop && panel ? 372 : 0, transition: "right .3s cubic-bezier(.2,0,0,1)", overflowY: locked ? "hidden" : "scroll" }}>
         {videoIds.map((vid, i) => {
           const isActive = i === index;
           return (
@@ -572,7 +688,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 style={{ background: "linear-gradient(0deg, rgba(8,11,15,.86) 0, rgba(11,14,20,.18) 26%, transparent 48%)" }} />
 
               {/* 顶部 */}
-              {!fs && mode === "context" ? (
+              {chrome && !fs && mode === "context" ? (
                 isDesktop ? (
                   <div className="desktop-context-header">
                     <button onClick={onBack} aria-label="返回"><IBack size={17} /></button>
@@ -580,7 +696,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     <small>{index + 1} / {videoIds.length}</small>
                   </div>
                 ) : (
-                  <div className="absolute inset-x-0 z-20 flex items-center gap-2 px-2.5" style={{ top: "calc(var(--sat, 0px) + 8px)" }}>
+                  <div className="absolute inset-x-0 z-20 flex items-center gap-2 px-2.5"
+                    style={{ top: "calc(var(--sat, 0px) + 8px)", paddingLeft: "calc(var(--sal, 0px) + 10px)", paddingRight: "calc(var(--sar, 0px) + 10px)" }}>
                     <button onClick={onBack} aria-label="返回" className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><IBack size={20} /></button>
                     <span className="text-[14.5px] font-semibold hg-ink hg-ov-shadow truncate">{title}</span>
                     <span className="ml-auto px-2 py-0.5 rounded-full hg-chip text-[11px] font-semibold" style={{ color: "rgba(255,255,255,.9)" }}>{index + 1} / {videoIds.length}</span>
@@ -593,9 +710,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
               {/* 右侧操作栏（移动端）：收藏 / 评论 / 全屏 / 画面比例 / 分享
                   颜色写死不跟主题走：浅色主题下这些字必须仍是白色 */}
-              {!fs && !isDesktop && (
+              {chrome && !fs && !isDesktop && (
                 <div className="absolute right-3 z-20 flex flex-col items-center gap-[16px]"
-                  style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)` }}>
+                  style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset + 92}px)`, right: "calc(var(--sar, 0px) + 12px)" }}>
                   <button onClick={onFav} className="flex flex-col items-center gap-1 pressable" aria-pressed={isFav(curId)} aria-label="收藏">
                     {isFav(curId) ? <IStarF size={27} className="hg-gold" /> : <IStar size={27} className="hg-ink hg-ov-shadow" />}
                     <span className="text-[10.5px] hg-ink-2 hg-ov-shadow">收藏</span>
@@ -608,6 +725,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     <IExpand size={26} className="hg-ink hg-ov-shadow" />
                     <span className="text-[10.5px] hg-ink-2 hg-ov-shadow">全屏</span>
                   </button>
+                  {/* 横屏：真机方向切换，只有 iOS 有原生入口 */}
+                  {isIOS && (
+                    <button onClick={toggleOrientation} className="flex flex-col items-center gap-1 pressable"
+                      aria-label={landscape ? "切换到竖屏" : "切换到横屏"} aria-pressed={landscape}>
+                      <IRotate size={26} className="hg-ink hg-ov-shadow" />
+                      <span className="text-[10.5px] hg-ink-2 hg-ov-shadow">{landscape ? "竖屏" : "横屏"}</span>
+                    </button>
+                  )}
                   <button onClick={toggleFit} className="flex flex-col items-center gap-1 pressable"
                     aria-label={`画面比例：当前${fitLabel}，点击切换`} aria-pressed={videoFit === "cover"}>
                     <IAspect size={26} className="hg-ink hg-ov-shadow" />
@@ -695,8 +820,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               )}
 
               {/* 移动端：标题 + 详情标签 + 进度线（不加底色，只铺一层柔和压暗保证可读） */}
-              {!fs && !isDesktop && (
-                <div className="absolute inset-x-0 z-20" style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset}px)` }}>
+              {chrome && !fs && !isDesktop && (
+                <div className="absolute inset-x-0 z-20"
+                  style={{ bottom: `calc(var(--sab, 0px) + ${bottomInset}px)`, paddingLeft: "var(--sal, 0px)", paddingRight: "var(--sar, 0px)" }}>
                   <div className="absolute inset-x-0 bottom-0 h-[190px] pointer-events-none"
                     style={{ background: "linear-gradient(0deg, rgba(0,0,0,.82) 0%, rgba(0,0,0,.42) 45%, transparent 100%)" }} />
                   <p className="relative px-4 pb-2 text-[14px] font-semibold leading-snug hg-ink hg-ov-shadow clamp-2">{meta.title}</p>
@@ -734,7 +860,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               )}
 
               {/* 暂停 / 缓冲 */}
-              {isActive && paused && !err && (
+              {chrome && isActive && paused && !err && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
                   <span className="w-[66px] h-[66px] rounded-full flex items-center justify-center backdrop-blur-md"
                     style={{ background: "rgba(0,0,0,.55)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,.12)" }}>
@@ -785,7 +911,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       )}
 
       {/* 移动端：倍速状态 / 锁定提示 */}
-      {!isDesktop && (holdSpeed || speedLock || rate !== 1) && (
+      {chrome && !isDesktop && (holdSpeed || speedLock || rate !== 1) && (
         <button
           onClick={() => {
             if (speedLock) { setSpeedLock(false); toast("已解除倍速锁定", "info"); }
@@ -807,8 +933,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       )}
 
       {/* 移动端全屏模式下的进度条（普通模式的进度条在底部灰块里） */}
-      {!isDesktop && fs && (
-        <div className="absolute inset-x-0 z-30 px-4" style={{ bottom: "calc(var(--sab, 0px) + 52px)", height: 22 }}>
+      {chrome && !isDesktop && fs && (
+        <div className="absolute inset-x-0 z-30 px-4"
+          style={{ bottom: "calc(var(--sab, 0px) + 52px)", height: 22, paddingLeft: "calc(var(--sal, 0px) + 16px)", paddingRight: "calc(var(--sar, 0px) + 16px)" }}>
           <div ref={barRef} className="relative h-full" style={{ touchAction: "none" }}
             onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
             <div className="absolute inset-x-0 bottom-[8px] h-[2.5px] rounded-full" style={{ background: "rgba(255,255,255,.3)" }}>
@@ -819,21 +946,28 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       )}
 
       {/* 移动端：沉浸全屏（安卓 WebView 不支持 Fullscreen API，改用应用内沉浸层） */}
-      {!isDesktop && fs && (
+      {chrome && !isDesktop && fs && (
         <>
-          <div className="absolute right-3 z-40 flex items-center gap-2" style={{ top: "calc(var(--sat, 0px) + 6px)" }}>
+          <div className="absolute right-3 z-40 flex items-center gap-2"
+            style={{ top: "calc(var(--sat, 0px) + 6px)", right: "calc(var(--sar, 0px) + 12px)" }}>
             <button onClick={toggleFit} aria-label={`画面比例：当前${fitLabel}，点击切换`} aria-pressed={videoFit === "cover"}
               className="hg-chip-strong h-9 px-2.5 rounded-full backdrop-blur-md flex items-center gap-1.5 pressable elev-1">
               <IAspect size={16} />
               <span className="text-[11px] font-semibold hg-ink">{fitLabel}</span>
             </button>
-            <button onClick={() => setFs(false)} aria-label="退出全屏"
+            {isIOS && (
+              <button onClick={toggleOrientation} aria-label={landscape ? "切换到竖屏" : "切换到横屏"} aria-pressed={landscape}
+                className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
+                <IRotate size={17} />
+              </button>
+            )}
+            <button onClick={exitFs} aria-label="退出全屏"
               className="hg-chip-strong w-9 h-9 rounded-full backdrop-blur-md flex items-center justify-center pressable elev-1">
               <ICompress size={18} />
             </button>
           </div>
           <div className="absolute inset-x-0 z-40 flex items-center gap-3 px-4"
-            style={{ bottom: "calc(var(--sab, 0px) + 10px)" }}>
+            style={{ bottom: "calc(var(--sab, 0px) + 10px)", paddingLeft: "calc(var(--sal, 0px) + 16px)", paddingRight: "calc(var(--sar, 0px) + 16px)" }}>
             <button onClick={() => videoRef.current?.toggle()}
               className="hg-chip shrink-0 w-9 h-9 rounded-full flex items-center justify-center pressable">
               {paused ? <IPlayF size={18} /> : <IPauseF size={17} />}
@@ -852,6 +986,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <span className="shrink-0 text-[11.5px] hg-ink-4 tabular-nums">{fmtTime(duration)}</span>
           </div>
         </>
+      )}
+
+      {/* 移动端：播放锁定把手。锁定后顶部/右侧/底部控件与上下滑切集全部失效，
+          只留左侧这个把手用于解锁，避免躺着看时误触。 */}
+      {!isDesktop && !idle && (
+        <button onClick={toggleLock} aria-label={locked ? "解锁" : "锁定屏幕"} aria-pressed={locked}
+          className={`absolute z-50 flex items-center justify-center pressable backdrop-blur-md ${locked
+            ? "w-11 h-11 rounded-r-full bg-primary text-on-primary elev-3"
+            : "w-10 h-10 rounded-r-full hg-chip hg-ink-2"}`}
+          style={{ top: "50%", left: "var(--sal, 0px)", transform: "translateY(-50%)" }}>
+          <ILockF size={locked ? 18 : 15} />
+        </button>
       )}
 
       {/* 选集 / 评论：桌面停靠在右侧（画面让位），移动端底部弹层 */}

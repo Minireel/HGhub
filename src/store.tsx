@@ -127,6 +127,8 @@ type Store = {
   toggleFollowLocal: (uid: number) => boolean;
   theater: boolean; setTheater: (v: boolean | ((p: boolean) => boolean)) => void;
   fs: boolean; setFs: (v: boolean | ((p: boolean) => boolean)) => void;
+  /** 播放页控件已自动隐藏/锁定：底栏与压在视频上的浮层要一起让位（不持久化） */
+  chromeHidden: boolean; setChromeHidden: (v: boolean) => void;
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
   volume: number; setVolume: (v: number) => void;
   videoFit: VideoFit; setVideoFit: (v: VideoFit | ((p: VideoFit) => VideoFit)) => void;
@@ -148,6 +150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [theater, setTheaterState] = useState(false);
   const [fs, setFsState] = useState(false);
+  const [chromeHidden, setChromeHidden] = useState(false);
   const toastSeq = useRef(0);
 
   useEffect(() => {
@@ -259,12 +262,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isFav: (id) => p.favs.includes(id),
     toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
     muted: p.muted, setMuted, volume: p.volume, setVolume, theater, setTheater, fs, setFs,
+    chromeHidden, setChromeHidden,
     videoFit: p.videoFit, setVideoFit,
     searchHist: p.searchHist, addSearch, clearSearchHist,
     toasts, toast,
   }), [theme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    setMuted, setVolume, setVideoFit, addSearch, clearSearchHist, toasts, toast, theater, setTheater, fs, setFs]);
+    setMuted, setVolume, setVideoFit, addSearch, clearSearchHist, toasts, toast, theater, setTheater, fs, setFs,
+    chromeHidden]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

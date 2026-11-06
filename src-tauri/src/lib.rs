@@ -1,8 +1,24 @@
 mod api;
+#[cfg(target_os = "ios")]
+mod ios;
 mod lines;
 mod media;
 mod net;
 mod session;
+
+/// 非 iOS 平台给同名命令一个空实现，保证 invoke_handler 列表在所有平台一致。
+#[cfg(not(target_os = "ios"))]
+mod ios {
+    #[tauri::command]
+    pub fn set_orientation_cmd(_landscape: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub fn set_status_bar_cmd(_hidden: bool) -> Result<(), String> {
+        Ok(())
+    }
+}
 
 use api::Api;
 use tauri::Manager;
@@ -64,6 +80,8 @@ pub fn run() {
             api::api_like,
             api::api_collect,
             api::api_follow,
+            ios::set_orientation_cmd,
+            ios::set_status_bar_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
