@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api, platform as envPlatform } from "./api";
+// iOS 与 Android 共用移动端的 `layoutPlatform`（见 api.ts），组件里的 platform 即布局模式。
+import { api, layoutPlatform as envPlatform } from "./api";
 import type { User } from "./types";
 
 export type Platform = "android" | "windows" | "macos";

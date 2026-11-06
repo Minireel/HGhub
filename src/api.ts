@@ -10,14 +10,46 @@ export const APP_VERSION = __APP_VERSION__;
 
 const ua = navigator.userAgent;
 export const isAndroid = /Android/i.test(ua);
-export const isMacos = /Macintosh|Mac OS X/i.test(ua);
-export const platform: "android" | "windows" | "macos" = isAndroid ? "android" : isMacos ? "macos" : "windows";
+/** iOS / iPadOS：WKWebView 的 UA 含 "Mac OS X"，需与 macOS 桌面区分；
+ *  iPadOS 还可伪装成 Macintosh，故用 maxTouchPoints 兜底。 */
+export const isIOS =
+  /iPhone|iPad|iPod/i.test(ua) ||
+  (/Macintosh|Mac OS X/i.test(ua) && navigator.maxTouchPoints > 1);
+export const isMacos = /Macintosh|Mac OS X/i.test(ua) && !isIOS;
+
+/** 真实运行平台：用于平台差异化逻辑与文案（安卓硬件返回键、客户端名称等）。 */
+export const runtimePlatform: "android" | "ios" | "windows" | "macos" = isAndroid
+  ? "android"
+  : isIOS
+    ? "ios"
+    : isMacos
+      ? "macos"
+      : "windows";
+
+/** 布局模式：iOS 与 Android 共用同一套移动端 UI（沉浸式竖屏 + 底部 TabBar）。
+ *
+ *  ⚠️ 组件里所有 `platform === "android"` 判断的语义都是「移动端」，不是字面上的
+ *  安卓系统。曾经这里导出的是真实平台值，结果 iOS 拿到 "ios"，Feed.tsx 的
+ *  `isDesktop = platform !== "android"` 成立，播放页改走桌面控制条、评论改走
+ *  372px 右侧停靠面板：窄屏上底部按钮被裁切，面板顶部关闭/返回按钮落进状态栏
+ *  区域无法点击。不要把它改回真实平台值。 */
+export const platform: "android" | "windows" | "macos" =
+  isAndroid || isIOS ? "android" : isMacos ? "macos" : "windows";
+
+/** 语义化别名：明确表示这是「布局模式」，store.tsx 使用这个名字。 */
+export const layoutPlatform = platform;
+
+/** 界面展示用的平台名。 */
+export const platformName =
+  runtimePlatform === "ios" ? "iOS"
+    : runtimePlatform === "android" ? "Android"
+      : runtimePlatform === "macos" ? "macOS" : "Windows";
 
 /** 自定义协议地址随平台不同（见 tauri `register_asynchronous_uri_scheme_protocol` 文档）：
  *  Windows / Android → `http://<scheme>.localhost`
  *  macOS / iOS / Linux → `<scheme>://localhost`
- *  Rust 侧 `src-tauri/src/lib.rs` 里改写 m3u8 用的 scheme 必须与此一致。 */
-export const LOCAL = isMacos ? "hg://localhost" : "http://hg.localhost";
+ *  Rust 侧 `src-tauri/src/media.rs` 里改写 m3u8 用的 scheme 必须与此一致。 */
+export const LOCAL = isMacos || isIOS ? "hg://localhost" : "http://hg.localhost";
 
 /** src 是否已是本地协议地址（避免在详情页把代理地址再包一层） */
 export const isLocalMedia = (src: string) => src.startsWith(`${LOCAL}/`);

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore, type Page, type Tab } from "./store";
-import { selfTest } from "./api";
+import { selfTest, isIOS } from "./api";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { runBack } from "./back";
 import Home from "./pages/Home";
@@ -216,7 +216,13 @@ function ShellInner({ collapsed, theater }: { collapsed: boolean; theater: boole
 function MobileShell() {
   return (
     <div className="absolute inset-0 flex flex-col bg-canvas plat-android"
-      style={{ "--sat": "max(env(safe-area-inset-top), 8px)", "--sab": "max(env(safe-area-inset-bottom), 6px)" } as React.CSSProperties}>
+      style={{
+        /* WKWebView 全屏延伸时 env() 会给出真实安全区（灵动岛 ~59px / Home 条 ~34px）；
+           若 WebView 被系统限制在安全区内，env() 为 0，此时也不需要大留白，
+           只补一个最小呼吸位即可，避免顶部按钮贴着屏幕边缘。 */
+        "--sat": `max(env(safe-area-inset-top, 0px), ${isIOS ? 20 : 8}px)`,
+        "--sab": `max(env(safe-area-inset-bottom, 0px), ${isIOS ? 16 : 6}px)`,
+      } as React.CSSProperties}>
       <div className="relative flex-1 min-h-0">
         <AppBody />
       </div>
@@ -243,7 +249,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (platform !== "android") return undefined;
+    // iOS 复用移动端布局，但没有安卓硬件返回键，跳过 back-button 监听。
+    if (platform !== "android" || isIOS) return undefined;
     let disposed = false;
     let handle: { unregister: () => Promise<void> } | null = null;
     addPluginListener("app", "back-button", () => backRef.current())
