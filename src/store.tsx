@@ -1,9 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api, platform as envPlatform } from "./api";
+// iOS 与 Android 共用移动端的 `layoutPlatform`（见 api.ts），组件里的 platform 即布局模式。
+import { api, layoutPlatform as envPlatform } from "./api";
 import type { User } from "./types";
 
 export type Platform = "android" | "windows" | "macos";
 export type Theme = "dark" | "light";
+/** 画面比例：自适应（完整显示，可能有黑边）/ 铺满（满屏，可能裁掉边缘） */
+export type VideoFit = "contain" | "cover";
 export type Tab = "home" | "search" | "category" | "profile";
 
 /** 播放页上下文：ids 是来源列表，index 是当前条目。 */
@@ -49,12 +52,15 @@ type Persist = {
   muted: boolean;
   volume: number;
   searchHist: string[];
+  videoFit: VideoFit;
 };
 
 const LS = "hghub_app_v1";
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
   muted: true, volume: 0.7, searchHist: [],
+  /** 默认自适应：完整显示画面，不放大裁切 */
+  videoFit: "contain",
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -79,7 +85,12 @@ function loadPersist(): Persist {
     const raw = localStorage.getItem(LS);
     if (!raw) return DEFAULTS;
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
-    return { ...p, history: normalizeHistory(p.history) };
+    return {
+      ...p,
+      history: normalizeHistory(p.history),
+      /* 旧版本没有这个字段时由 DEFAULTS 兜底；顺手挡掉非法值 */
+      videoFit: p.videoFit === "cover" ? "cover" : "contain",
+    };
   } catch {
     return DEFAULTS;
   }
@@ -116,8 +127,11 @@ type Store = {
   toggleFollowLocal: (uid: number) => boolean;
   theater: boolean; setTheater: (v: boolean | ((p: boolean) => boolean)) => void;
   fs: boolean; setFs: (v: boolean | ((p: boolean) => boolean)) => void;
+  /** 播放页控件已自动隐藏/锁定：底栏与压在视频上的浮层要一起让位（不持久化） */
+  chromeHidden: boolean; setChromeHidden: (v: boolean) => void;
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
   volume: number; setVolume: (v: number) => void;
+  videoFit: VideoFit; setVideoFit: (v: VideoFit | ((p: VideoFit) => VideoFit)) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
   toasts: Toast[]; toast: (msg: string, icon?: Toast["icon"]) => void;
 };
@@ -136,6 +150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [theater, setTheaterState] = useState(false);
   const [fs, setFsState] = useState(false);
+  const [chromeHidden, setChromeHidden] = useState(false);
   const toastSeq = useRef(0);
 
   useEffect(() => {
@@ -233,6 +248,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const volume = Math.max(0, Math.min(1, v));
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
   }, []);
+  const setVideoFit = useCallback((v: VideoFit | ((prev: VideoFit) => VideoFit)) => {
+    setP((s) => ({ ...s, videoFit: typeof v === "function" ? v(s.videoFit) : v }));
+  }, []);
 
   const value = useMemo<Store>(() => ({
     platform: envPlatform,
@@ -244,11 +262,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isFav: (id) => p.favs.includes(id),
     toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
     muted: p.muted, setMuted, volume: p.volume, setVolume, theater, setTheater, fs, setFs,
+    chromeHidden, setChromeHidden,
+    videoFit: p.videoFit, setVideoFit,
     searchHist: p.searchHist, addSearch, clearSearchHist,
     toasts, toast,
   }), [theme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    setMuted, setVolume, addSearch, clearSearchHist, toasts, toast, theater, setTheater, fs, setFs]);
+    setMuted, setVolume, setVideoFit, addSearch, clearSearchHist, toasts, toast, theater, setTheater, fs, setFs,
+    chromeHidden]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

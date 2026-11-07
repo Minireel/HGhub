@@ -44,6 +44,8 @@ export const IMore = S(<><circle cx="5" cy="12" r="1.7" fill="currentColor" stro
 export const IEye = S(<><path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.8" /></>);
 export const IEyeOff = S(<><path d="M4 4.5 20 19.5" /><path d="M9.9 6.2A9.4 9.4 0 0 1 12 5.8c6 0 9.5 6.2 9.5 6.2a17.5 17.5 0 0 1-3 3.5M6.6 7.4A16.6 16.6 0 0 0 2.5 12S6 18.2 12 18.2c1.2 0 2.3-.2 3.3-.6" /></>);
 export const ILockF = S(<><rect x="5" y="10.5" width="14" height="10" rx="2.6" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" strokeWidth="2.2" /></>, true);
+/* 开锁：锁梁右侧断开，用于「已锁定 · 点此解锁」状态 */
+export const IUnlockF = S(<><rect x="5" y="10.5" width="14" height="10" rx="2.6" /><path d="M8 10.5V8a4 4 0 0 1 7.6-1.7" fill="none" stroke="currentColor" strokeWidth="2.2" /></>, true);
 export const IBoltF = S(<path d="M13.4 2.3 4.8 13.1c-.4.5 0 1.2.6 1.2h5l-1.7 7.2c-.2.7.7 1.1 1.2.6l8.6-10.8c.4-.5 0-1.2-.6-1.2h-5l1.7-7.2c.2-.7-.7-1.1-1.2-.6Z" />, true);
 export const IVol = S(<><path d="M4 9.5v5h3.2L12 18.8V5.2L7.2 9.5Z" fill="currentColor" stroke="none" /><path d="M15.5 9a4.3 4.3 0 0 1 0 6" /><path d="M18 6.5a8 8 0 0 1 0 11" /></>);
 export const IVolMute = S(<><path d="M4 9.5v5h3.2L12 18.8V5.2L7.2 9.5Z" fill="currentColor" stroke="none" /><path d="m15.5 9.5 5 5" /><path d="m20.5 9.5-5 5" /></>);
@@ -64,6 +66,8 @@ export const IAndroid = S(<><path d="M7 10.5a5 5 0 0 1 10 0v.5H7Z" fill="current
 export const IWindows = S(<path d="M3.5 5.8 10.8 4.7v6.8H3.5Zm0 12.4 7.3 1.1v-6.7H3.5Zm8.5 1.3 8.5 1.3v-8.2H12Zm0-15v6.9h8.5V3.2Z" />, true);
 export const IMinus = S(<path d="M5 12h14" />);
 export const ISquare = S(<rect x="5.5" y="5.5" width="13" height="13" rx="1.5" />);
+/** 画面比例（自适应 / 铺满）：外框是屏幕，内框是画面 */
+export const IAspect = S(<><rect x="2.5" y="4" width="19" height="16" rx="2.2" /><rect x="8.5" y="5" width="7" height="14" rx="1" /></>);
 export const IRotate = S(<><rect x="7" y="3.5" width="10" height="17" rx="2.2" /><path d="M2.5 9A9.8 9.8 0 0 1 5 5.5M21.5 15a9.8 9.8 0 0 1-2.5 3.5" /></>);
 export const IHist = S(<><path d="M3.8 12a8.2 8.2 0 1 1 2.4 5.8" /><path d="M3.5 13.5 3.8 17l3.4-.5" /><path d="M12 7.5v4.7l3.2 1.9" /></>);
 export const IPip = S(<><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><rect x="12" y="12" width="6.5" height="4.8" rx="1.2" fill="currentColor" stroke="none" /></>);

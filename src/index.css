@@ -27,6 +27,9 @@
   --p-on-danger: #45060f;
   --p-glow: rgba(96, 205, 255, .28);
   --p-hover: rgba(255, 255, 255, .08);
+  /* iOS 刘海 / Home 指示条安全区；Android WebView 不支持 env() 时自动回落到 0px */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
   --p-tint: rgba(96, 205, 255, .14);
   --p-shadow: 0 28px 88px rgba(0, 0, 0, .45), 0 6px 20px rgba(0, 0, 0, .32);
   --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-ctl: 999px;
@@ -89,7 +92,9 @@ html.theme-light {
   --color-on-danger: var(--p-on-danger);
 }
 
-html, body, #root { height: 100%; overflow: hidden; overscroll-behavior: none; }
+/* iOS 安全区：TabBar 按 --sab 抬高后，下方露出 WebView 白色背景，
+   给根容器铺一层主题底色，避免深色模式出现白条（随明暗主题变化）。 */
+html, body, #root { height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--p-canvas); }
 body {
   margin: 0;
   background: var(--p-canvas);
@@ -518,6 +523,11 @@ html.theme-light .article-body { color: rgba(20,24,30,.82); }
 .hg-chip-strong  { background: rgba(0, 0, 0, .62); color: #fff; }
 .hg-chip:active  { background: rgba(0, 0, 0, .62); }
 .hg-ov-shadow    { text-shadow: 0 1px 8px rgba(0, 0, 0, .7); }
+
+/* 播放 5 秒后自动隐藏：底栏淡出且不再吃触摸，画面整块留给视频。
+   点一下画面唤出控件后由 Feed 把 is-hidden 去掉。 */
+.hg-tabbar { transition: opacity .28s ease; }
+.hg-tabbar.is-hidden { opacity: 0; pointer-events: none; }
 
 /* 安卓 WebView 点按会留下系统黄色焦点框，视频/底栏这类沉浸按钮一律去掉 */
 .hg-tabbar button,

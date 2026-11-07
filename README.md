@@ -87,6 +87,19 @@ pnpm android:dev      # 真机 / 模拟器调试
 pnpm android:build    # 产出 APK
 ```
 
+iOS（需 macOS + Xcode、Rust 的 `aarch64-apple-ios` target，并已执行一次 `pnpm tauri ios init`）：
+
+```bash
+pnpm ios:ipa          # 产出未签名的 arm64 IPA
+```
+
+脚本会编译前端与 Rust 静态库、以 `CODE_SIGNING_ALLOWED=NO` 链接出 `HGhub.app`，
+再按 `Payload/*.app` 结构打包为项目根目录的 `HGhub-unsigned.ipa`；可用
+`IPA_OUT=/path/to/out.ipa` 指定输出位置。IPA **刻意不签名**，交给 SideStore / AltStore
+用自己的 Apple ID 重签后侧载（免费账号签发的证书 7 天过期，需定期重签）。
+最低系统版本 iOS 15.0。首次执行 `tauri ios init` 时若提示缺少
+`APPLE_DEVELOPMENT_TEAM`，设置任意有效 Team ID 即可，脚本本身不需要付费账号。
+
 ### 环境注意
 
 - 工程若放在 **exFAT** 盘（不支持符号链接），需保留 `.npmrc` 中的 `node-linker=hoisted`。
@@ -98,9 +111,24 @@ pnpm android:build    # 产出 APK
 1. **统一边缘信封**：站点把 `/api/**` 收敛为 `POST /api/edge/request`（`method/path/body(base64)/content_type` + `Authorization: Bearer`），本项目只对接这一个入口，无需处理 Cookie。
 2. **封面解密**：封面为 AES-128-CBC 密文，Rust 侧解密后经自定义协议输出，前端 `<img>` 直接使用。
 3. **HLS 代理**：m3u8 与分片经自定义协议转发并改写 `#EXT-X-KEY` / 分片地址，绕开 WebView 的 CORS 与防盗链。
-4. **自定义协议**：Windows / Android 为 `http://hg.localhost/*`，macOS 为 `hg://localhost/*`（Tauri 的平台差异）。
-   Rust 侧 `lib.rs` 与前端 `api.ts` 各自按平台生成一次基址，两处必须一致，否则封面与视频全部加载失败。
-5. **不做签名逆向**：只复用浏览器同源行为，接口字段均有文档与实测样本。
+4. **自定义协议**：Windows / Android 为 `http://hg.localhost/*`，macOS / iOS 为 `hg://localhost/*`（Tauri 的平台差异）。
+   Rust 侧 `media.rs` 与前端 `api.ts` 各自按平台生成一次基址，两处必须一致，否则封面与视频全部加载失败。
+5. **iOS 布局**：`api.ts` 的 `platform` 表示**布局模式**而不是真实系统，iOS 与 Android 共用同一套移动端 UI；
+   真实平台请用 `runtimePlatform` / `isIOS`。若把 `platform` 改回真实值，播放页会误走桌面控制条与右侧停靠面板。
+6. **iOS 原生层**：`scripts/ios/main.mm` 由构建脚本复制到 `gen/apple`，把 WKWebView 与 scrollView 的底色染成
+   不透明深色以消除底部白条；不能用 `opaque=NO` / `clearColor`，否则视频硬件解码层会让整个页面黑屏。
+   同理 `<video>` 不做 `opacity` 淡入，播放页在 iOS 上跳过全屏 blur 氛围层。
+7. **不做签名逆向**：只复用浏览器同源行为，接口字段均有文档与实测样本。
+8. **画面比例**：播放页可切换「自适应」（`object-fit: contain`，完整显示、可能有黑边）与「铺满」（`object-fit: cover`，满屏但会放大裁切边缘）。移动端入口在右侧操作栏与沉浸全屏右上角，桌面入口在控制条；选择持久化在 `hghub_app_v1`，默认自适应。
+9. **iOS 横竖屏 / 锁定 / 沉浸**：屏幕方向与系统状态栏必须由 UIKit 控制，`src-tauri/src/ios.rs` 提供两个命令：
+   `set_orientation_cmd`（iOS 16+ 用 `UIWindowScene.requestGeometryUpdateWithPreferences:`，15 用 `UIDevice` KVC 兜底）与
+   `set_status_bar_cmd`（给根控制器的类挂 `prefersStatusBarHidden`）；两者都经 `dispatch_async_f` 派到主线程。
+   非 iOS 平台是空实现，所以 `invoke_handler` 全平台一致。播放页右侧栏有「横屏/竖屏」；竖屏用左侧锁形把手，
+   横屏/沉浸模式（`fs || landscape`）则把锁定与解锁合并到右上角同一颗按钮 —— 锁定态其余控件全部让位，
+   这颗按钮原地变成高亮的开锁图标（`IUnlockF`，尺寸与位置不变），左侧把手不再渲染，避免横屏时被灵动岛/左右安全区遮住。
+   锁定后屏蔽手势与上下滑切集。播放地址就绪且开始出画面后 5 秒，移动端控件（含这颗锁定/解锁按钮）、
+   底部标签栏与系统状态栏一起自动隐藏（暂停/缓冲/面板打开/拖动进度时保持常显）；锁定态点一下画面只
+   唤出解锁按钮，其余控件仍隐藏，5 秒后再次收起。切换横竖屏时主动重置计时，避免旋转后整屏无按钮。
 
 
 ## 免责声明
