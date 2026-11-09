@@ -87,6 +87,13 @@ export default function Settings({ onBack, wide }: { onBack: () => void; wide: b
                 <option value={1.1}>110%</option>
                 <option value={1.2}>120%</option>
                 <option value={1.3}>130%</option>
+                <option value={1.4}>140%</option>
+                <option value={1.5}>150%</option>
+                <option value={1.6}>160%</option>
+                <option value={1.7}>170%</option>
+                <option value={1.8}>180%</option>
+                <option value={1.9}>190%</option>
+                <option value={2}>200%</option>
               </select>
             </div>
           </Section>

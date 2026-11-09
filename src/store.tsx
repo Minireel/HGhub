@@ -84,7 +84,7 @@ function loadPersist(): Persist {
     const fontScale = Number(p.fontScale);
     return {
       ...p,
-      fontScale: Number.isFinite(fontScale) ? Math.min(1.3, Math.max(1, fontScale)) : 1,
+      fontScale: Number.isFinite(fontScale) ? Math.min(2, Math.max(1, fontScale)) : 1,
       history: normalizeHistory(p.history),
     };
   } catch {
@@ -271,7 +271,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
   }, []);
   const setFontScale = useCallback((v: number) => {
-    const fontScale = Math.min(1.3, Math.max(1, Number(v) || 1));
+    const fontScale = Math.min(2, Math.max(1, Number(v) || 1));
     setP((s) => ({ ...s, fontScale }));
   }, []);
 
