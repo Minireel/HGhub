@@ -50,12 +50,13 @@ type Persist = {
   muted: boolean;
   volume: number;
   searchHist: string[];
+  fontScale: number;
 };
 
 const LS = "hghub_app_v1";
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
-  muted: true, volume: 0.7, searchHist: [],
+  muted: true, volume: 0.7, searchHist: [], fontScale: 1,
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -80,7 +81,12 @@ function loadPersist(): Persist {
     const raw = localStorage.getItem(LS);
     if (!raw) return DEFAULTS;
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
-    return { ...p, history: normalizeHistory(p.history) };
+    const fontScale = Number(p.fontScale);
+    return {
+      ...p,
+      fontScale: Number.isFinite(fontScale) ? Math.min(1.3, Math.max(1, fontScale)) : 1,
+      history: normalizeHistory(p.history),
+    };
   } catch {
     return DEFAULTS;
   }
@@ -119,6 +125,7 @@ type Store = {
   fs: boolean; setFs: (v: boolean | ((p: boolean) => boolean)) => void;
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
   volume: number; setVolume: (v: number) => void;
+  fontScale: number; setFontScale: (v: number) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
   strictSecurity: boolean; strictSecurityReady: boolean; securityPending: boolean; cliRelaxed: boolean; setStrictSecurity: (on: boolean) => Promise<void>;
   toasts: Toast[]; toast: (msg: string, icon?: Toast["icon"]) => void;
@@ -152,6 +159,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try { localStorage.setItem(LS, JSON.stringify(p)); } catch { /* ignore */ }
   }, [p]);
+
+  useEffect(() => {
+    document.documentElement.style.zoom = String(p.fontScale);
+  }, [p.fontScale]);
 
   useEffect(() => {
     api.boot()
@@ -259,6 +270,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const volume = Math.max(0, Math.min(1, v));
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
   }, []);
+  const setFontScale = useCallback((v: number) => {
+    const fontScale = Math.min(1.3, Math.max(1, Number(v) || 1));
+    setP((s) => ({ ...s, fontScale }));
+  }, []);
 
   const value = useMemo<Store>(() => ({
     platform: envPlatform,
@@ -269,13 +284,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isLiked: (id) => p.likes.includes(id),
     isFav: (id) => p.favs.includes(id),
     toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    muted: p.muted, setMuted, volume: p.volume, setVolume, theater, setTheater, fs, setFs,
+    muted: p.muted, setMuted, volume: p.volume, setVolume, fontScale: p.fontScale, setFontScale, theater, setTheater, fs, setFs,
     searchHist: p.searchHist, addSearch, clearSearchHist,
     strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast,
   }), [theme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    setMuted, setVolume, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+    setMuted, setVolume, setFontScale, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, theater, setTheater, fs, setFs]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
