@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, cover, fmt, fmtTime, mediaUrl, platform } from "../api";
+import { api, cover, fmt, fmtTime, isMobile, mediaUrl } from "../api";
 import type { Detail, Episode, Post, VideoCard } from "../types";
 import { useStore } from "../store";
 import { Avatar, Img, Sheet } from "./ui";
 import VideoSurface, { type VideoHandle } from "./VideoSurface";
 import PlayerControls from "./PlayerControls";
+import PlaybackLock from "./PlaybackLock";
 import { ArticlePanel, CommentsPanel, EpisodesPanel } from "./Panels";
 import { setBackHandler } from "../back";
 import {
   IBack, IBoltF, IChevR, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
-  ILink, IList, ILockF, IPauseF, IPlayF, IStar, IStarF, IVol, IVolMute,
+  ILink, IList, ILockF, IPauseF, IPlayF, ISearch, IStar, IStarF, IVol, IVolMute,
 } from "../icons";
 
 type Props = {
@@ -34,7 +35,7 @@ const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd, startEp, startTime }: Props) {
   const store = useStore();
   const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen } = store;
-  const isDesktop = platform !== "android";
+  const isDesktop = !isMobile;
 
   const boxRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<VideoHandle>(null);
@@ -50,6 +51,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [vsize, setVsize] = useState({ w: 0, h: 0 });
   const [buffered, setBuffered] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [controlsLocked, setControlsLocked] = useState(false);
   const [rate, setRate] = useState(1);
   const [waiting, setWaiting] = useState(false);
   const [err, setErr] = useState("");
@@ -99,7 +101,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [barPct, setBarPct] = useState<number | null>(null);
   const gesture = useRef<{
     x: number; y: number; startY: number; t: number; timer: number | null;
-    mode: "idle" | "hold" | "scrub"; base: number; width: number;
+    mode: "idle" | "hold" | "scrub" | "pan"; base: number; width: number; playing: boolean;
   } | null>(null);
 
   const curId = videoIds[index];
@@ -107,6 +109,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const curEp = epMap[curId] || 1;
   const playKey = `${curId}:${curEp}`;
   const playUrl = playUrls[playKey] || "";
+  useEffect(() => { videoRef.current?.trace("page.active", { active, view: mode, video_id: curId, episode: curEp }); }, [active, mode, curId, curEp]);
   const episodes = detail?.episodes || [];
   const post = posts[curId];
 
@@ -128,7 +131,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const r = resumeRef.current;
     if (r && r.key === playKey && r.t > 1 && (!d || r.t < d - 3)) {
       resumeRef.current = null;
-      videoRef.current?.seek(r.t);
+      videoRef.current?.seek(r.t, "history_resume");
       setTime(r.t);
     }
   };
@@ -260,9 +263,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   /* 倍速同步（长按 2x / 锁定 2x / 基准倍速） */
   useEffect(() => { videoRef.current?.rate(effRate); }, [effRate, playKey]);
 
-  /* 非激活时暂停 */
-  useEffect(() => { if (!active) videoRef.current?.pause(); }, [active]);
-
   /* 离开播放页时把最后位置落盘 */
   useEffect(() => () => {
     const s = liveRef.current;
@@ -272,7 +272,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* 键盘 */
   useEffect(() => {
-    if (!active) return;
+    if (!active || controlsLocked) return;
     const fn = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
@@ -281,8 +281,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         case "ArrowDown": e.preventDefault(); go(1); break;
         case "ArrowUp": e.preventDefault(); go(-1); break;
         case " ": e.preventDefault(); videoRef.current?.toggle(); break;
-        case "ArrowLeft": e.preventDefault(); videoRef.current?.seek(Math.max(0, time - 5)); break;
-        case "ArrowRight": e.preventDefault(); videoRef.current?.seek(time + 5); break;
+        case "ArrowLeft": e.preventDefault(); videoRef.current?.seek(Math.max(0, time - 5), "keyboard_shortcut"); break;
+        case "ArrowRight": e.preventDefault(); videoRef.current?.seek(time + 5, "keyboard_shortcut"); break;
         case "f": case "F": toggleFull(); break;
         case "t": case "T": setTheater((v) => !v); break;
         case "m": case "M": setMuted((v) => !v); break;
@@ -296,7 +296,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, panel, time, index]);
+  }, [active, controlsLocked, panel, time, index]);
 
   /* 安卓返回键：面板打开时先关面板 */
   useEffect(() => {
@@ -320,13 +320,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* —— 长按 2x（上滑锁定） / 横拖定位 / 单击暂停 —— */
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDesktop) return;
+    if (isDesktop || controlsLocked || !active || gesture.current || e.button !== 0) return;
     const el = e.currentTarget;
     const width = el.clientWidth || 1;
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const g = {
       x: e.clientX, y: e.clientY, startY: e.clientY, t: Date.now(), base: time, width,
-      mode: "idle" as "idle" | "hold" | "scrub",
+      mode: "idle" as "idle" | "hold" | "scrub" | "pan",
+      playing: videoRef.current?.el()?.paused === false,
       timer: window.setTimeout(() => {
         const cur = gesture.current;
         if (!cur || cur.mode !== "idle") return;
@@ -364,6 +365,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         videoRef.current?.pause();
       } else if (Math.abs(dy) > 14) {
         if (g.timer) window.clearTimeout(g.timer);
+        g.mode = "pan";
       }
       return;
     }
@@ -377,7 +379,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
   };
 
-  const onUp = () => {
+  const onUp = (cancelled = false) => {
     const g = gesture.current;
     gesture.current = null;
     if (!g) return;
@@ -386,7 +388,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (g.mode === "hold") {
       holdRef.current = false;
       setHoldSpeed(false);
-      if (lockArmedRef.current) {
+      if (!cancelled && lockArmedRef.current) {
         setSpeedLock(true);
         toast("已锁定 2.0x 倍速 · 点顶部标签解除", "info");
       }
@@ -396,14 +398,27 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     }
     if (g.mode === "scrub") {
       const target = scrubTarget.current;
-      if (target != null) videoRef.current?.seek(target);
+      if (!cancelled && target != null) videoRef.current?.seek(target, "mobile_gesture");
       setScrub(null);
       scrubTarget.current = null;
-      if (!paused) videoRef.current?.play();
+      if (g.playing && active) videoRef.current?.play();
       return;
     }
-    if (Date.now() - g.t < 260) videoRef.current?.toggle();
+    if (!cancelled && g.mode === "idle" && Date.now() - g.t < 260) videoRef.current?.toggle();
   };
+
+  useEffect(() => {
+    if (!active || controlsLocked) onUp(true);
+    // Cancel pending gestures when the page is hidden or controls are locked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, controlsLocked]);
+
+  useEffect(() => () => {
+    if (gesture.current?.timer) window.clearTimeout(gesture.current.timer);
+    gesture.current = null;
+  }, [playKey]);
+
+  const lockControls = () => { setPanel(null); setControlsLocked(true); };
 
   /* 长按倍速期间禁止原生滚动，否则上滑会被列表吃掉、锁不住倍速 */
   useEffect(() => {
@@ -433,6 +448,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   };
   const onBarDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
+    videoRef.current?.trace("seek.input.down", { input: "mobile_bar" });
     barScrub.current = true;
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
     barSeekTo(e.clientX, e.clientY);
@@ -440,6 +456,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const onBarMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!barScrub.current) return;
     e.stopPropagation();
+    videoRef.current?.trace("seek.input.move", { input: "mobile_bar" });
     barSeekTo(e.clientX, e.clientY);
   };
   const onBarUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -449,7 +466,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     const pct = barPctAt(e.clientX, e.clientY);
     if (pct != null && duration) {
       const target = pct * duration;
-      videoRef.current?.seek(target);
+      videoRef.current?.trace("seek.input.up", { input: "mobile_bar", target });
+      videoRef.current?.seek(target, "mobile_bar");
       setTime(target);
     }
     setBarPct(null);
@@ -505,8 +523,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   return (
     <div
-      className={`hg-player-ui absolute inset-0 overflow-hidden bg-black player-root ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${rotated ? "fs-landscape" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
+      className={`hg-player-ui absolute inset-0 overflow-hidden bg-black player-root ${controlsLocked ? "is-locked" : ""} ${isDesktop ? "player-surface" : ""} ${theater ? "is-theater" : ""} ${rotated ? "fs-landscape" : ""} ${isDesktop && idle ? "is-idle" : ""}`}
       onPointerMove={() => { if (isDesktop) wake(); }}>
+      <div className="absolute inset-0" inert={controlsLocked}>
       {/* 氛围背景 */}
       <div className="absolute inset-0 scale-110 blur-3xl opacity-25 pointer-events-none">
         {posterUrl && <img src={posterUrl} alt="" className="w-full h-full object-cover" />}
@@ -521,8 +540,9 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
             <section key={vid} className="relative w-full h-full snap-start snap-always overflow-hidden">
               {isActive && playUrl ? (
                 <div className="absolute inset-0" style={{ touchAction: "pan-y" }}
-                  onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-                <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay muted={muted}
+                  onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => onUp()} onPointerCancel={() => onUp(true)} onLostPointerCapture={() => onUp(true)}>
+                <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay active={active} muted={muted}
+                  diagnosticContext={{ active, view: mode, kind, video_id: curId, episode: curEp }}
                   volume={volume} rate={effRate}
                   fit={isDesktop || (vsize.w > 0 && vsize.w > vsize.h) ? "contain" : "cover"}
                   onClick={() => { if (isDesktop) videoRef.current?.toggle(); }}
@@ -566,13 +586,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                     <small>{index + 1} / {videoIds.length}</small>
                   </div>
                 ) : (
-                  <div className="absolute inset-x-0 z-20 flex items-center gap-2 px-2.5" style={{ top: "calc(var(--sat, 0px) + 8px)" }}>
+                  <div className="absolute inset-x-0 z-20 flex items-center gap-2 px-2.5" style={{ top: "calc(var(--sat, 0px) + 8px)", paddingRight: 148 }}>
                     <button onClick={onBack} aria-label="返回" className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><IBack size={20} /></button>
                     <span className="text-[14.5px] font-semibold hg-ink hg-ov-shadow truncate">{title}</span>
                     <span className="ml-auto px-2 py-0.5 rounded-full hg-chip text-[11px] font-semibold" style={{ color: "rgba(255,255,255,.9)" }}>{index + 1} / {videoIds.length}</span>
-                    <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"} className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
-                      {muted ? <IVolMute size={17} /> : <IVol size={17} />}
-                    </button>
                   </div>
                 )
               ) : null}
@@ -746,14 +763,18 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           paused={paused} time={time} duration={duration} buffered={buffered} rate={rate}
           muted={muted} volume={volume} theater={theater} fullscreen={fullscreen}
           visible={active && !idle}
+          seekEnabled={active && !controlsLocked}
+          seekKey={playKey}
           nextDisabled={!episodes.some((e) => e.ep_num === curEp + 1) && index >= videoIds.length - 1}
           nextTitle={episodes.some((e) => e.ep_num === curEp + 1) ? "下一集 E" : "下一部 ↓"}
           onToggle={() => videoRef.current?.toggle()}
-          onSeek={(t) => { videoRef.current?.seek(t); setTime(t); }}
+          onSeek={(t, source) => { videoRef.current?.seek(t, source); setTime(t); }}
+          onSeekInteraction={(phase, input, target, pointerTarget) => videoRef.current?.trace(`seek.input.${phase}`, { input, target, pointer_target: pointerTarget })}
           onRate={(r) => { setRate(r); videoRef.current?.rate(r); }}
           onMute={() => setMuted((m) => !m)}
           onVolume={(v) => setVolume(v)}
           onPip={togglePip}
+          onLock={lockControls}
           onTheater={() => setTheater((v) => !v)}
           onFullscreen={toggleFull}
           onNext={() => {
@@ -923,6 +944,20 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           </Sheet>
         </>
       )}
+      </div>
+      {!isDesktop && !controlsLocked && active && (
+        <div className={`absolute z-40 flex items-center gap-2 ${fs ? "right-14" : "right-3"}`} style={{ top: "calc(var(--sat, 0px) + 6px)" }}>
+          {!fs && <button onClick={() => setMuted(m => !m)} aria-label={muted ? "取消静音" : "静音"}
+            className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1">
+            {muted ? <IVolMute size={17} /> : <IVol size={17} />}
+          </button>}
+          <button onClick={lockControls} aria-label="锁定播放控制" title="锁定播放控制" aria-pressed={false}
+            className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ILockF size={17} /></button>
+          {!fs && <button onClick={() => store.setTab("search")} aria-label="搜索"
+            className="hg-chip w-9 h-9 rounded-full flex items-center justify-center pressable elev-1"><ISearch size={18} /></button>}
+        </div>
+      )}
+      {controlsLocked && <PlaybackLock active={active} onUnlock={() => { setControlsLocked(false); wake(); }} />}
     </div>
   );
 }

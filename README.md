@@ -1,3 +1,10 @@
+*关于本项目：HGhub 只是我体验 Tuari2 移动端开发时做的小玩具，开源几天后不知为何收到了大量star。*
+
+*意识到可能存在的潜在危险后，我立刻更换了开源协议为 **PolyForm Noncommercial 1.0.0** ，并在 Readme 中写入了大量保护自己的文段。目前 HGhub收到的star实际上德不配位。*
+
+*在之后的更新中，我不再会维护任何获取上游数据的工作，维护方向将偏重于 UI/UX 与使用体验，同时仍会低频率的响应 PR 与 Issues。如果版权方或其授权代表认为本项目涉及其合法权益，欢迎通过 GitHub 仓库留言联系。收到明确的权利方通知后，我会第一时间积极响应，并根据对方诉求立即归档项目或将仓库转为私有，停止公开访问。*
+
+
 <div align="center">
 
 # HGhub
@@ -87,6 +94,17 @@ pnpm android:dev      # 真机 / 模拟器调试
 pnpm android:build    # 产出 APK
 ```
 
+iOS（需 Xcode、xcodegen、CocoaPods 与 Apple 开发者账号；自行签名安装到自己的设备）：
+
+```bash
+export APPLE_DEVELOPMENT_TEAM=<你的 Team ID>
+pnpm tauri ios init --ci                          # 首次生成 Xcode 工程（src-tauri/gen/apple）
+pnpm tauri ios build --export-method debugging    # 产出 src-tauri/gen/apple/build/arm64/HGhub.ipa
+xcrun devicectl device install app --device <UDID> <解压后的 Payload/HGhub.app>
+```
+
+最低系统版本写在 `src-tauri/tauri.ios.conf.json`（iOS 15）。iOS 复用安卓的触屏界面；自定义协议与 macOS 相同，为 `hg://localhost`。
+
 ### 环境注意
 
 - 工程若放在 **exFAT** 盘（不支持符号链接），需保留 `.npmrc` 中的 `node-linker=hoisted`。
@@ -95,7 +113,11 @@ pnpm android:build    # 产出 APK
 
 ## 实现要点
 
+「设置 → 播放 → 启动时静音」默认开启，每次启动应用均静音，播放时可手动开启声音。关闭此选项后，下次启动恢复上次的静音状态；音量仍会记忆。
+
 安全加固后的正文处理、FakeIP/内网限制、账号线路隔离及本地回归方法，见 [客户端内容与网络安全](docs/security.md)。镜像线路仅支持游客浏览，跨站点切换和首次升级后需要重新登录。
+
+Mihomo 与 sing-box 分流规则、已知域名统计及导入方法，见 [网络分流规则](rules/README.md)。
 
 1. **统一边缘信封**：站点把 `/api/**` 收敛为 `POST /api/edge/request`（`method/path/body(base64)/content_type` + `Authorization: Bearer`），本项目只对接这一个入口，无需处理 Cookie。
 2. **封面解密**：封面为 AES-128-CBC 密文，Rust 侧解密后经自定义协议输出，前端 `<img>` 直接使用。
@@ -146,6 +168,15 @@ cd src-tauri/gen/android
 **3. Android 构建提示找不到 SDK / NDK**
 
 需要设置 `ANDROID_HOME`（Android SDK 根目录）、`NDK_HOME`（`$ANDROID_HOME/ndk/<版本>`）与 `JAVA_HOME`（JDK 17）。
+
+**4. macOS 打开时提示「已损坏」或「无法验证开发者」**
+
+Release 里的 dmg 没有用 Apple 开发者证书签名和公证，从网上下载后会被 Gatekeeper 拦下。
+把 HGhub 拖进「应用程序」后，在终端执行一次：
+
+```bash
+xattr -cr /Applications/HGhub.app
+```
 
 ## LinuxDO
 https://linux.do/

@@ -10,14 +10,19 @@ export const APP_VERSION = __APP_VERSION__;
 
 const ua = navigator.userAgent;
 export const isAndroid = /Android/i.test(ua);
-export const isMacos = /Macintosh|Mac OS X/i.test(ua);
-export const platform: "android" | "windows" | "macos" = isAndroid ? "android" : isMacos ? "macos" : "windows";
+/** iPhone 的 UA 也带「like Mac OS X」，必须先于 macOS 判断；iPadOS 默认伪装成 Mac，用触点数区分。 */
+export const isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+export const isMacos = !isIos && /Macintosh|Mac OS X/i.test(ua);
+export const platform: "android" | "ios" | "windows" | "macos" =
+  isAndroid ? "android" : isIos ? "ios" : isMacos ? "macos" : "windows";
+/** 移动端（安卓 / iOS）共用触屏界面 */
+export const isMobile = isAndroid || isIos;
 
 /** 自定义协议地址随平台不同（见 tauri `register_asynchronous_uri_scheme_protocol` 文档）：
  *  Windows / Android → `http://<scheme>.localhost`
  *  macOS / iOS / Linux → `<scheme>://localhost`
  *  Rust 侧 `src-tauri/src/lib.rs` 里改写 m3u8 用的 scheme 必须与此一致。 */
-export const LOCAL = isMacos ? "hg://localhost" : "http://hg.localhost";
+export const LOCAL = isMacos || isIos ? "hg://localhost" : "http://hg.localhost";
 
 /** src 是否已是本地协议地址（避免在详情页把代理地址再包一层） */
 export const isLocalMedia = (src: string) => src.startsWith(`${LOCAL}/`);
@@ -41,6 +46,10 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
     const msg = typeof e === "string" ? e : "请求失败，请检查网络";
     // 落盘完整错误链（dns error / connection refused / 证书错误…），toast 只显示截断版
     logLine(`[api] ${cmd} → ${msg}`);
+    const status = /^HTTP (\d{3})\b/.exec(msg)?.[1];
+    if (status) {
+      throw new Error(`服务器请求失败（HTTP ${status}），请稍后重试或在设置中切换线路`);
+    }
     throw new Error(msg.length > 140 ? `${msg.slice(0, 140)}…` : msg);
   }
 }

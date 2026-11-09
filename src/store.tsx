@@ -3,7 +3,7 @@ import { api, platform as envPlatform } from "./api";
 import { isStrictSecurity, setStrictSecurity as setHtmlStrictSecurity } from "./html";
 import type { User } from "./types";
 
-export type Platform = "android" | "windows" | "macos";
+export type Platform = "android" | "ios" | "windows" | "macos";
 export type Theme = "dark" | "light";
 export type Tab = "home" | "search" | "category" | "profile";
 
@@ -48,6 +48,7 @@ type Persist = {
   history: WatchProgress[];
   follows: number[];
   muted: boolean;
+  muteOnStartup: boolean;
   volume: number;
   searchHist: string[];
   fontScale: number;
@@ -56,7 +57,7 @@ type Persist = {
 const LS = "hghub_app_v1";
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
-  muted: true, volume: 0.7, searchHist: [], fontScale: 1,
+  muted: true, muteOnStartup: true, volume: 0.7, searchHist: [], fontScale: 1,
 };
 
 /** 旧版本 history 是 number[]，读出来时升级成带进度的结构 */
@@ -82,9 +83,13 @@ function loadPersist(): Persist {
     if (!raw) return DEFAULTS;
     const p = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Persist>) };
     const fontScale = Number(p.fontScale);
+    // 只在启动时应用；本次使用中取消静音不会关闭此偏好。
+    const muteOnStartup = p.muteOnStartup !== false;
     return {
       ...p,
       fontScale: Number.isFinite(fontScale) ? Math.min(2, Math.max(1, fontScale)) : 1,
+      muteOnStartup,
+      muted: muteOnStartup || p.muted === true,
       history: normalizeHistory(p.history),
     };
   } catch {
@@ -124,6 +129,7 @@ type Store = {
   theater: boolean; setTheater: (v: boolean | ((p: boolean) => boolean)) => void;
   fs: boolean; setFs: (v: boolean | ((p: boolean) => boolean)) => void;
   muted: boolean; setMuted: (v: boolean | ((p: boolean) => boolean)) => void;
+  muteOnStartup: boolean; setMuteOnStartup: (on: boolean) => void;
   volume: number; setVolume: (v: number) => void;
   fontScale: number; setFontScale: (v: number) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
@@ -266,6 +272,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setMuted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setP((s) => ({ ...s, muted: typeof v === "function" ? v(s.muted) : v }));
   }, []);
+  const setMuteOnStartup = useCallback((on: boolean) => {
+    setP((s) => ({ ...s, muteOnStartup: on }));
+  }, []);
   const setVolume = useCallback((v: number) => {
     const volume = Math.max(0, Math.min(1, v));
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
@@ -284,13 +293,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isLiked: (id) => p.likes.includes(id),
     isFav: (id) => p.favs.includes(id),
     toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    muted: p.muted, setMuted, volume: p.volume, setVolume, fontScale: p.fontScale, setFontScale, theater, setTheater, fs, setFs,
+    muted: p.muted, setMuted, volume: p.volume, setVolume, theater, setTheater, fs, setFs,
+    muteOnStartup: p.muteOnStartup, setMuteOnStartup,
+  fontScale: p.fontScale, setFontScale,
     searchHist: p.searchHist, addSearch, clearSearchHist,
     strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast,
   }), [theme, tab, setTab, stack, push, pop, user, loginOpen, logout,
     p, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory,
-    setMuted, setVolume, setFontScale, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
+  setMuted, setMuteOnStartup, setVolume, setFontScale, addSearch, clearSearchHist, strictSecurity, strictSecurityReady, securityPending, cliRelaxed, setStrictSecurity,
     toasts, toast, theater, setTheater, fs, setFs]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
