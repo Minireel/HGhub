@@ -1,0 +1,83 @@
+name: iOS IPA (unsigned)
+
+# 手动触发：Actions → iOS IPA (unsigned) → Run workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ios
+
+      - name: 安装 xcodegen / CocoaPods
+        run: brew install xcodegen cocoapods
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 生成 Xcode 工程
+        run: pnpm tauri ios init --ci
+
+      # 关闭签名：产物是未签名 IPA，之后用 Sideloadly / AltStore / TrollStore 等自行签名安装
+      - name: 关闭代码签名
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd src-tauri/gen/apple
+          cat project.yml | head -60
+          python3 - <<'PY'
+          import re
+          p = "project.yml"
+          s = open(p).read()
+          extra = (
+              "    CODE_SIGNING_ALLOWED: \"NO\"\n"
+              "    CODE_SIGNING_REQUIRED: \"NO\"\n"
+              "    CODE_SIGN_IDENTITY: \"\"\n"
+          )
+          # 在顶层 settings.base 下追加；若找不到则放到文件开头的 settings 里
+          if re.search(r"^settings:\s*\n\s+base:\s*\n", s, re.M):
+              s = re.sub(r"(^settings:\s*\n\s+base:\s*\n)", r"\1" + extra, s, count=1, flags=re.M)
+          else:
+              s += "\nsettings:\n  base:\n" + extra
+          open(p, "w").write(s)
+          PY
+          xcodegen generate
+
+      # tauri 的 export 阶段需要签名，会失败；但 xcarchive 在此之前已生成，所以允许失败后再手动打包
+      - name: 构建 archive
+        continue-on-error: true
+        run: pnpm tauri ios build --ci --export-method debugging
+
+      - name: 打包 IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(find src-tauri/gen/apple -name '*.xcarchive' -maxdepth 4 | head -1)"
+          if [ -z "$ARCHIVE" ]; then echo "没有找到 xcarchive，构建失败"; exit 1; fi
+          APP="$(find "$ARCHIVE/Products/Applications" -name '*.app' -maxdepth 1 | head -1)"
+          VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          mkdir -p ipa/Payload artifacts
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry "../artifacts/HGhub_${VERSION}_ios_unsigned.ipa" Payload)
+          ls -lh artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: artifacts/*.ipa
+          if-no-files-found: error
