@@ -11,7 +11,8 @@
   <a href="https://minireel.github.io/HGhub/">在线文档</a> ·
   <a href="docs/developers/index.md">插件开发</a> ·
   <a href="docs/DEVELOPMENT.md">参与开发</a> ·
-  <a href="https://github.com/Minireel/HGhub/issues">反馈问题</a>
+  <a href="https://github.com/Minireel/HGhub/issues">反馈问题</a> ·
+  <a href="README.vi.md">Tiếng Việt</a>
 </p>
 
 HGhub 将浏览、搜索、播放和个人片库放在同一个应用中。通过导入 JavaScript 插件，你可以接入不同内容来源，并使用统一的界面观看与管理内容。
